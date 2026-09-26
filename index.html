@@ -182,7 +182,7 @@
     </div>
   </div>
 
-  <div id="guide-tip" class="guide">لیوان آب را با کلیک چپ بکشید و بالای بشر ببرید.</div>
+  <div id="guide-tip" class="guide">لیوان آب را بردارید و بالای بشر خالی کنید.</div>
 
   <div class="help-box" id="html-help">
     <b>دسکتاپ:</b> درگ موس برای وسایل | کلیک راست چرخش<br/>
@@ -222,7 +222,7 @@
     const tempMatrix = new THREE.Matrix4();
 
     // موقعیت‌های پیش‌فرض محلی (Local به labStage)
-    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.55, 0.15);
+    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.25, 0.15);
     const POS_THERMO_DEF = new THREE.Vector3(0.45, 0.25, 0.35);
     const POS_MATCH_DEF = new THREE.Vector3(-0.5, 0.25, 0.25);
 
@@ -270,7 +270,7 @@
       scene.add(labStage);
 
       camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 50);
-      camera.position.set(0, 1.6, 0.55);
+      camera.position.set(0, 1.5, 0.7);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -365,13 +365,12 @@
       beakerGroup = new THREE.Group();
       beakerGroup.position.set(0, 0.55, 0);
 
-      // متریال شیشه واضح و شفاف
       const glassMat = new THREE.MeshStandardMaterial({
         color: 0xcfe8ff,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.45,
         roughness: 0.1,
-        metalness: 0.2,
+        metalness: 0.1,
         side: THREE.DoubleSide
       });
 
@@ -379,7 +378,6 @@
       const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.02, 32), glassMat);
       btm.position.y = -0.32;
 
-      // لبه دهانه شیشه برای دید بهتر
       const rim = new THREE.Mesh(
         new THREE.TorusGeometry(0.35, 0.015, 12, 32),
         new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.2 })
@@ -405,7 +403,7 @@
     function initCup() {
       cupGroup = new THREE.Group();
       cupGroup.position.copy(POS_CUP_DEF);
-      cupGroup.userData = { type: 'cup' };
+      cupGroup.userData = { type: 'cup', defaultPos: POS_CUP_DEF.clone() };
 
       const body = new THREE.Mesh(
         new THREE.CylinderGeometry(0.18, 0.2, 0.45, 28),
@@ -429,7 +427,7 @@
       thermometerGroup = new THREE.Group();
       thermometerGroup.position.copy(POS_THERMO_DEF);
       thermometerGroup.rotation.z = Math.PI / 2;
-      thermometerGroup.userData = { type: 'thermometer' };
+      thermometerGroup.userData = { type: 'thermometer', defaultPos: POS_THERMO_DEF.clone() };
 
       const probe = new THREE.Mesh(
         new THREE.CylinderGeometry(0.015, 0.015, 0.65, 16),
@@ -483,7 +481,7 @@
 
       matchGroup = new THREE.Group();
       matchGroup.position.copy(POS_MATCH_DEF);
-      matchGroup.userData = { type: 'match' };
+      matchGroup.userData = { type: 'match', defaultPos: POS_MATCH_DEF.clone() };
 
       const stick = new THREE.Mesh(
         new THREE.BoxGeometry(0.03, 0.03, 0.42),
@@ -567,6 +565,7 @@
       labStage.add(burnerGroup);
     }
 
+    // اصلاح کامل تابلوی واقعیت مجازی: بردن به بالای سر میز و نادیده گرفتن تست عمق
     function initVRHUD() {
       vrHudCanvas = document.createElement('canvas');
       vrHudCanvas.width = 512;
@@ -574,12 +573,19 @@
       vrHudCtx = vrHudCanvas.getContext('2d');
       vrHudTexture = new THREE.CanvasTexture(vrHudCanvas);
 
-      const hudMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.85, 0.42),
-        new THREE.MeshBasicMaterial({ map: vrHudTexture, transparent: true, opacity: 0.95 })
-      );
-      hudMesh.position.set(0, 0.9, -0.4);
-      labStage.add(hudMesh);
+      const hudMat = new THREE.MeshBasicMaterial({
+        map: vrHudTexture,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false
+      });
+
+      vrHudMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.52), hudMat);
+      vrHudMesh.position.set(0, 1.45, -0.2); // کاملاً بالاتر از بشر و وسایل
+      vrHudMesh.rotation.x = 0.15; // زاویه ملایم رو به پایین به سمت چشم کاربر
+      vrHudMesh.renderOrder = 9999;
+      labStage.add(vrHudMesh);
 
       updateVRHUD();
     }
@@ -588,7 +594,7 @@
       if (!vrHudCtx) return;
       vrHudCtx.clearRect(0, 0, 512, 256);
 
-      vrHudCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      vrHudCtx.fillStyle = 'rgba(15, 23, 42, 0.94)';
       vrHudCtx.beginPath();
       vrHudCtx.roundRect ? vrHudCtx.roundRect(10, 10, 492, 236, 18) : vrHudCtx.fillRect(10, 10, 492, 236);
       vrHudCtx.fill();
@@ -599,7 +605,7 @@
       vrHudCtx.fillStyle = '#38bdf8';
       vrHudCtx.font = 'bold 24px sans-serif';
       vrHudCtx.textAlign = 'right';
-      vrHudCtx.fillText('شبیه‌ساز آزمایشگاه شیمی (پویا الهامی)', 470, 50);
+      vrHudCtx.fillText('شبیه‌ساز آزمایشگاه', 470, 50';
 
       vrHudCtx.fillStyle = '#fde047';
       vrHudCtx.font = '19px sans-serif';
@@ -629,7 +635,7 @@
     }
 
     // ==========================================
-    // راه‌اندازی استاندارد WebXR برای عینک و شبیه‌ساز
+    // راه‌اندازی استاندارد WebXR
     // ==========================================
     function checkXRSupport() {
       if ('xr' in navigator) {
@@ -653,6 +659,7 @@
                     currentSession = null;
                     if (xrGrabbed) {
                       labStage.attach(xrGrabbed.object);
+                      resetObjectTransform(xrGrabbed.object);
                       xrGrabbed = null;
                     }
                     activeDrag = null;
@@ -744,6 +751,21 @@
       return true;
     }
 
+    // ریست کردن زاویه و برگشت تمیز وسیله
+    function resetObjectTransform(obj) {
+      if (!obj) return;
+      if (obj.userData.type === 'cup') {
+        obj.rotation.set(0, 0, 0);
+        if (simState.beakerFilled) {
+          obj.position.copy(POS_CUP_DEF); // اگر آب خالی شده، منظم روی میز برگردد
+        }
+      } else if (obj.userData.type === 'match') {
+        obj.rotation.set(0, 0, 0);
+      } else if (obj.userData.type === 'thermometer' && !simState.thermoActive) {
+        obj.rotation.set(0, 0, Math.PI / 2);
+      }
+    }
+
     function releaseXRObject(controller) {
       if (!xrGrabbed || xrGrabbed.controller !== controller) return false;
 
@@ -752,6 +774,8 @@
 
       activeDrag = object;
       processInteractions();
+      resetObjectTransform(object);
+
       activeDrag = null;
       xrGrabbed = null;
 
@@ -826,6 +850,7 @@
 
       controls.enabled = true;
       $('canvas-container').classList.remove('grabbing');
+      resetObjectTransform(activeDrag);
       activeDrag = null;
     }
 
