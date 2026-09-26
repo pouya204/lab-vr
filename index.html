@@ -82,6 +82,7 @@
       width: 0%;
       height: 100%;
       background: linear-gradient(90deg, #38bdf8, #f59e0b, #ef4444);
+      transition: width 0.1s linear;
     }
     .guide {
       position: absolute;
@@ -130,34 +131,33 @@
     .reset-btn:hover {
       background: rgba(30, 41, 59, 0.95);
     }
-    /* دکمه اختصاصی WebXR بدون وابستگی خارجی */
     #vr-btn {
       position: absolute;
       bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 999;
-      background: rgba(14, 165, 233, 0.85);
+      background: #0284c7;
       color: #ffffff;
       border: 1px solid #38bdf8;
       border-radius: 30px;
-      padding: 12px 24px;
+      padding: 12px 28px;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: bold;
       cursor: pointer;
-      box-shadow: 0 4px 20px rgba(14, 165, 233, 0.4);
+      box-shadow: 0 4px 20px rgba(2, 132, 199, 0.5);
       display: none;
     }
     #vr-btn:hover {
-      background: #0284c7;
+      background: #0369a1;
     }
   </style>
 </head>
 <body>
   <div id="canvas-container"></div>
 
-  <div class="hud">
+  <div class="hud" id="html-hud">
     <h1>شبیه‌ساز آزمایشگاه</h1>
     <div class="author">پویا الهامی</div>
 
@@ -184,10 +184,9 @@
 
   <div id="guide-tip" class="guide">لیوان آب را با کلیک چپ بکشید و بالای بشر ببرید.</div>
 
-  <div class="help-box">
-    <b>کلیک چپ / لمس:</b> جابجایی وسایل<br/>
-    <b>کلیک راست:</b> چرخش زاویه دید<br/>
-    <b>روی Quest 3:</b> کلید تریگر برای گرفتن وسایل
+  <div class="help-box" id="html-help">
+    <b>دسکتاپ:</b> کلیک چپ جابجایی | راست چرخش دوربین<br/>
+    <b>روی Quest 3:</b> کلید Trigger برای گرفتن وسایل
   </div>
 
   <button class="reset-btn" onclick="location.reload()">تنظیم مجدد</button>
@@ -198,11 +197,15 @@
 
   <script>
     let scene, camera, renderer, controls;
+    let labStage; // گروه ریشه آزمایشگاه برای تنظیم دقیق فاصله در واقعیت مجازی
     let cupGroup, cupWater;
     let beakerGroup, beakerWater;
     let thermometerGroup, lcdCanvas, lcdCtx, lcdTexture;
     let matchGroup, matchFlame, matchLight, matchbox;
     let burnerGroup, burnerFlameInner, burnerFlameOuter, burnerLight;
+
+    // HUD سه‌بعدی شناور در VR
+    let vrHudMesh, vrHudCanvas, vrHudCtx, vrHudTexture;
 
     let activeDrag = null;
     const raycaster = new THREE.Raycaster();
@@ -219,9 +222,10 @@
     const xrRaycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
 
-    const POS_CUP_DEF = new THREE.Vector3(2.2, 0.55, 0.8);
-    const POS_THERMO_DEF = new THREE.Vector3(2.0, 0.25, 1.6);
-    const POS_MATCH_DEF = new THREE.Vector3(-2.1, 0.25, 1.2);
+    // موقعیت‌های پیش‌فرض محلی (Local به labStage)
+    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.55, 0.15);
+    const POS_THERMO_DEF = new THREE.Vector3(0.45, 0.25, 0.35);
+    const POS_MATCH_DEF = new THREE.Vector3(-0.5, 0.25, 0.25);
 
     const simState = {
       beakerFilled: false,
@@ -231,7 +235,8 @@
       waterTemp: 25.0,
       displayTemp: 25.0,
       heatStartTime: null,
-      heatDuration: 30.0
+      heatDuration: 30.0,
+      guideText: 'لیوان آب را بردارید و بالای بشر خالی کنید.'
     };
 
     const particles = {
@@ -241,13 +246,18 @@
     };
 
     const $ = (id) => document.getElementById(id);
-    const updateTip = (msg) => { $('guide-tip').innerText = msg; };
+    const updateTip = (msg) => { 
+      simState.guideText = msg;
+      $('guide-tip').innerText = msg; 
+      updateVRHUD();
+    };
     const updateStatus = (id, msg, color = '#facc15') => {
       const el = $(id);
       if (el) {
         el.innerText = msg;
         el.style.color = color;
       }
+      updateVRHUD();
     };
 
     function init() {
@@ -256,20 +266,25 @@
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0a0f1d);
 
-      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-      camera.position.set(0, 3.2, 5.5);
+      // گروه والد کل میز و وسایل تا دید کاربر دقیقاً روبروی میز باشد
+      labStage = new THREE.Group();
+      labStage.position.set(0, 0.75, -1.35); // ارتفاع و عمق ایده‌آل دست و چشم در Quest 3
+      scene.add(labStage);
+
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 50);
+      camera.position.set(0, 1.6, 0.55); // موقعیت چشم در دسکتاپ و VR یکسان‌سازی شد
 
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.shadowMap.enabled = true;
-      renderer.xr.enabled = true; // فعال‌سازی XR برای کوئست
+      renderer.xr.enabled = true;
       container.appendChild(renderer.domElement);
 
       controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
-      controls.target.set(0, 1.0, 0);
+      controls.target.set(0, 1.25, -1.35);
       controls.mouseButtons = {
         LEFT: null,
         MIDDLE: THREE.MOUSE.DOLLY,
@@ -283,8 +298,8 @@
       initThermometer();
       initMatchbox();
       initBurner();
+      initVRHUD();
 
-      // فعال‌سازی کنترلرهای عینک
       setupXRControllers();
       checkXRSupport();
 
@@ -295,30 +310,45 @@
       window.addEventListener('pointercancel', onPointerUp);
       window.addEventListener('resize', onResize);
 
-      // استفاده از setAnimationLoop برای عملکرد همزمان دسکتاپ و Quest
       renderer.setAnimationLoop(renderLoop);
     }
 
     function initLighting() {
-      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-      const light = new THREE.DirectionalLight(0xffffff, 1.0);
-      light.position.set(4, 7, 3);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+      const light = new THREE.DirectionalLight(0xffffff, 1.1);
+      light.position.set(2, 6, 2);
       light.castShadow = true;
       scene.add(light);
     }
 
     function initEnvironment() {
-      const table = new THREE.Mesh(
-        new THREE.BoxGeometry(8, 0.2, 4.5),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 })
+      // کف واقعی اتاق
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(12, 12),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
       );
-      table.position.y = -0.1;
-      table.receiveShadow = true;
-      scene.add(table);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = 0;
+      floor.receiveShadow = true;
+      scene.add(floor);
 
-      const grid = new THREE.GridHelper(10, 20, 0x475569, 0x1e293b);
-      grid.position.y = 0.001;
-      scene.add(grid);
+      // میز کار آزمایشگاهی
+      const table = new THREE.Mesh(
+        new THREE.BoxGeometry(2.2, 0.08, 1.3),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 })
+      );
+      table.position.y = 0.0;
+      table.receiveShadow = true;
+      labStage.add(table);
+
+      // پایه‌های میز
+      const legGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.75, 16);
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8 });
+      [[-0.95, -0.55], [0.95, -0.55], [-0.95, 0.55], [0.95, 0.55]].forEach(([x, z]) => {
+        const leg = new THREE.Mesh(legGeo, legMat);
+        leg.position.set(x, -0.375, z);
+        labStage.add(leg);
+      });
     }
 
     function createHitbox(group, size) {
@@ -333,7 +363,7 @@
 
     function initBeaker() {
       beakerGroup = new THREE.Group();
-      beakerGroup.position.set(0, 1.25, 0);
+      beakerGroup.position.set(0, 0.55, 0);
 
       const glassMat = new THREE.MeshStandardMaterial({
         color: 0xe2e8f0,
@@ -344,22 +374,22 @@
         side: THREE.DoubleSide
       });
 
-      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.35, 32, 1, true), glassMat);
-      const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.04, 32), glassMat);
-      btm.position.y = -0.655;
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.65, 32, 1, true), glassMat);
+      const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.02, 32), glassMat);
+      btm.position.y = -0.32;
 
       beakerGroup.add(cyl);
       beakerGroup.add(btm);
 
       beakerWater = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.66, 0.66, 0.1, 28),
+        new THREE.CylinderGeometry(0.33, 0.33, 0.05, 28),
         new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.75, roughness: 0.2 })
       );
-      beakerWater.position.y = -0.62;
+      beakerWater.position.y = -0.3;
       beakerWater.visible = false;
       beakerGroup.add(beakerWater);
 
-      scene.add(beakerGroup);
+      labStage.add(beakerGroup);
     }
 
     function initCup() {
@@ -368,21 +398,21 @@
       cupGroup.userData = { type: 'cup' };
 
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35, 0.4, 0.9, 28),
+        new THREE.CylinderGeometry(0.18, 0.2, 0.45, 28),
         new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.3 })
       );
       body.castShadow = true;
       cupGroup.add(body);
 
       cupWater = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.32, 0.36, 0.7, 28),
+        new THREE.CylinderGeometry(0.16, 0.18, 0.35, 28),
         new THREE.MeshStandardMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 })
       );
-      cupWater.position.y = 0.05;
+      cupWater.position.y = 0.02;
       cupGroup.add(cupWater);
 
-      createHitbox(cupGroup, new THREE.Vector3(1.2, 1.4, 1.2));
-      scene.add(cupGroup);
+      createHitbox(cupGroup, new THREE.Vector3(0.5, 0.6, 0.5));
+      labStage.add(cupGroup);
     }
 
     function initThermometer() {
@@ -392,17 +422,17 @@
       thermometerGroup.userData = { type: 'thermometer' };
 
       const probe = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.03, 0.03, 1.3, 16),
+        new THREE.CylinderGeometry(0.015, 0.015, 0.65, 16),
         new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.8, roughness: 0.2 })
       );
-      probe.position.y = -0.65;
+      probe.position.y = -0.32;
       thermometerGroup.add(probe);
 
       const body = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, 0.45, 0.16),
+        new THREE.BoxGeometry(0.15, 0.22, 0.08),
         new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4 })
       );
-      body.position.y = 0.15;
+      body.position.y = 0.08;
       thermometerGroup.add(body);
 
       lcdCanvas = document.createElement('canvas');
@@ -412,120 +442,171 @@
       lcdTexture = new THREE.CanvasTexture(lcdCanvas);
 
       const screen = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.22, 0.12),
+        new THREE.PlaneGeometry(0.11, 0.06),
         new THREE.MeshBasicMaterial({ map: lcdTexture })
       );
-      screen.position.set(0, 0.18, 0.081);
+      screen.position.set(0, 0.09, 0.041);
       thermometerGroup.add(screen);
 
       drawDisplay(simState.displayTemp);
-      createHitbox(thermometerGroup, new THREE.Vector3(0.9, 1.8, 0.9));
-      scene.add(thermometerGroup);
+      createHitbox(thermometerGroup, new THREE.Vector3(0.4, 0.8, 0.4));
+      labStage.add(thermometerGroup);
     }
 
     function initMatchbox() {
       matchbox = new THREE.Group();
-      matchbox.position.set(-2.1, 0.12, 0.6);
+      matchbox.position.set(-0.5, 0.06, 0.05);
 
       const base = new THREE.Mesh(
-        new THREE.BoxGeometry(0.8, 0.22, 1.2),
+        new THREE.BoxGeometry(0.4, 0.11, 0.6),
         new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.8 })
       );
       matchbox.add(base);
 
       const side = new THREE.Mesh(
-        new THREE.BoxGeometry(0.06, 0.16, 1.05),
+        new THREE.BoxGeometry(0.03, 0.08, 0.52),
         new THREE.MeshStandardMaterial({ color: 0x3f1d0b, roughness: 0.95 })
       );
-      side.position.x = 0.42;
+      side.position.x = 0.21;
       matchbox.add(side);
-      scene.add(matchbox);
+      labStage.add(matchbox);
 
       matchGroup = new THREE.Group();
       matchGroup.position.copy(POS_MATCH_DEF);
       matchGroup.userData = { type: 'match' };
 
       const stick = new THREE.Mesh(
-        new THREE.BoxGeometry(0.06, 0.06, 0.85),
+        new THREE.BoxGeometry(0.03, 0.03, 0.42),
         new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.7 })
       );
       matchGroup.add(stick);
 
       const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.07, 16, 16),
+        new THREE.SphereGeometry(0.035, 16, 16),
         new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.5 })
       );
-      tip.position.z = -0.42;
+      tip.position.z = -0.21;
       matchGroup.add(tip);
 
       matchFlame = new THREE.Mesh(
-        new THREE.ConeGeometry(0.07, 0.25, 16),
+        new THREE.ConeGeometry(0.035, 0.12, 16),
         new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.9 })
       );
-      matchFlame.position.set(0, 0.14, -0.42);
+      matchFlame.position.set(0, 0.07, -0.21);
       matchFlame.visible = false;
       matchGroup.add(matchFlame);
 
-      matchLight = new THREE.PointLight(0xf97316, 0, 2.5);
-      matchLight.position.set(0, 0.15, -0.42);
+      matchLight = new THREE.PointLight(0xf97316, 0, 1.5);
+      matchLight.position.set(0, 0.07, -0.21);
       matchGroup.add(matchLight);
 
-      createHitbox(matchGroup, new THREE.Vector3(0.8, 0.8, 1.3));
-      scene.add(matchGroup);
+      createHitbox(matchGroup, new THREE.Vector3(0.4, 0.4, 0.6));
+      labStage.add(matchGroup);
     }
 
     function initBurner() {
       burnerGroup = new THREE.Group();
-      burnerGroup.position.set(0, 0, 0);
+      burnerGroup.position.set(0, 0.04, 0);
 
       const metalMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
 
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.76, 0.1, 28), metalMat);
-      base.position.y = 0.05;
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.38, 0.05, 28), metalMat);
       burnerGroup.add(base);
 
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.75, 20), metalMat);
-      pipe.position.y = 0.58;
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.38, 20), metalMat);
+      pipe.position.y = 0.22;
       burnerGroup.add(pipe);
 
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.035, 12, 28), metalMat);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.018, 12, 28), metalMat);
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = 1.22;
+      ring.position.y = 0.54;
       burnerGroup.add(ring);
 
       const meshGrid = new THREE.Mesh(
-        new THREE.BoxGeometry(1.15, 0.02, 1.15),
+        new THREE.BoxGeometry(0.58, 0.01, 0.58),
         new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 })
       );
-      meshGrid.position.y = 1.24;
+      meshGrid.position.y = 0.55;
       burnerGroup.add(meshGrid);
 
       const flameNode = new THREE.Group();
-      flameNode.position.set(0, 0.95, 0);
+      flameNode.position.set(0, 0.42, 0);
 
       burnerFlameInner = new THREE.Mesh(
-        new THREE.ConeGeometry(0.08, 0.32, 16),
+        new THREE.ConeGeometry(0.04, 0.16, 16),
         new THREE.MeshBasicMaterial({ color: 0x06b6d4, transparent: true, opacity: 0.95 })
       );
-      burnerFlameInner.position.y = 0.16;
+      burnerFlameInner.position.y = 0.08;
       flameNode.add(burnerFlameInner);
 
       burnerFlameOuter = new THREE.Mesh(
-        new THREE.ConeGeometry(0.18, 0.65, 16),
+        new THREE.ConeGeometry(0.09, 0.32, 16),
         new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true, opacity: 0.45 })
       );
-      burnerFlameOuter.position.y = 0.32;
+      burnerFlameOuter.position.y = 0.16;
       flameNode.add(burnerFlameOuter);
 
-      burnerLight = new THREE.PointLight(0x38bdf8, 0, 4);
-      burnerLight.position.y = 0.3;
+      burnerLight = new THREE.PointLight(0x38bdf8, 0, 2.5);
+      burnerLight.position.y = 0.15;
       flameNode.add(burnerLight);
 
       flameNode.visible = false;
       burnerGroup.flame = flameNode;
       burnerGroup.add(flameNode);
 
-      scene.add(burnerGroup);
+      labStage.add(burnerGroup);
+    }
+
+    // ساخت پنل HUD شناور داخل فضا مخصوص هدست Quest
+    function initVRHUD() {
+      vrHudCanvas = document.createElement('canvas');
+      vrHudCanvas.width = 512;
+      vrHudCanvas.height = 256;
+      vrHudCtx = vrHudCanvas.getContext('2d');
+      vrHudTexture = new THREE.CanvasTexture(vrHudCanvas);
+
+      const hudMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.85, 0.42),
+        new THREE.MeshBasicMaterial({ map: vrHudTexture, transparent: true, opacity: 0.95 })
+      );
+      hudMesh.position.set(0, 0.9, -0.4);
+      labStage.add(hudMesh);
+
+      updateVRHUD();
+    }
+
+    function updateVRHUD() {
+      if (!vrHudCtx) return;
+      vrHudCtx.clearRect(0, 0, 512, 256);
+
+      // پس‌زمینه شیشه‌ای تیره
+      vrHudCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      vrHudCtx.beginPath();
+      vrHudCtx.roundRect ? vrHudCtx.roundRect(10, 10, 492, 236, 18) : vrHudCtx.fillRect(10, 10, 492, 236);
+      vrHudCtx.fill();
+      vrHudCtx.lineWidth = 4;
+      vrHudCtx.strokeStyle = '#38bdf8';
+      vrHudCtx.stroke();
+
+      // عنوان و نویسنده
+      vrHudCtx.fillStyle = '#38bdf8';
+      vrHudCtx.font = 'bold 24px sans-serif';
+      vrHudCtx.textAlign = 'right';
+      vrHudCtx.fillText('شبیه‌ساز آزمایشگاه شیمی (پویا الهامی)', 470, 50);
+
+      // راهنما
+      vrHudCtx.fillStyle = '#fde047';
+      vrHudCtx.font = '19px sans-serif';
+      vrHudCtx.fillText(simState.guideText, 470, 95);
+
+      // مقادیر دما و وضعیت
+      vrHudCtx.fillStyle = '#94a3b8';
+      vrHudCtx.font = '18px sans-serif';
+      vrHudCtx.fillText('دمای آب: ' + simState.waterTemp.toFixed(1) + ' °C', 470, 140);
+      vrHudCtx.fillText('شعله: ' + (simState.burnerLit ? 'روشن' : 'خاموش'), 470, 175);
+      vrHudCtx.fillText('دماسنج: ' + (simState.thermoActive ? 'داخل مایع' : 'خارج'), 470, 210);
+
+      vrHudTexture.needsUpdate = true;
     }
 
     function drawDisplay(temp) {
@@ -543,7 +624,7 @@
     }
 
     // ==========================================
-    // راه‌اندازی WebXR اختصاصی عینک کوئست
+    // راه‌اندازی استاندارد WebXR برای عینک Quest 3
     // ==========================================
     function checkXRSupport() {
       if ('xr' in navigator) {
@@ -556,7 +637,8 @@
             btn.addEventListener('click', () => {
               if (currentSession === null) {
                 navigator.xr.requestSession('immersive-vr', {
-                  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+                  requiredFeatures: ['local-floor'],
+                  optionalFeatures: ['bounded-floor', 'hand-tracking']
                 }).then((session) => {
                   currentSession = session;
                   btn.textContent = 'خروج از واقعیت مجازی';
@@ -576,17 +658,15 @@
     }
 
     function setupXRControllers() {
-      const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -2)]);
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1.8)]);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
 
-      // دست ۱
       controller1 = renderer.xr.getController(0);
       controller1.addEventListener('selectstart', onXRSelectStart);
       controller1.addEventListener('selectend', onXRSelectEnd);
       controller1.add(new THREE.Line(lineGeo, lineMat));
       scene.add(controller1);
 
-      // دست ۲
       controller2 = renderer.xr.getController(1);
       controller2.addEventListener('selectstart', onXRSelectStart);
       controller2.addEventListener('selectend', onXRSelectEnd);
@@ -619,7 +699,7 @@
 
     function onXRSelectEnd(e) {
       if (xrGrabbed && xrGrabbed.controller === e.target) {
-        scene.attach(xrGrabbed.object);
+        labStage.attach(xrGrabbed.object);
         processInteractions();
         finishDrag(xrGrabbed.object);
         xrGrabbed = null;
@@ -640,7 +720,7 @@
       }
     }
 
-    // تعاملات ماوس / تاچ دسکتاپ
+    // تعاملات دسکتاپ
     function setPointerCoords(e) {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -664,10 +744,13 @@
 
         const camDir = new THREE.Vector3();
         camera.getWorldDirection(camDir);
-        dragPlane.setFromNormalAndCoplanarPoint(camDir.negate(), activeDrag.position);
+        
+        const worldPos = new THREE.Vector3();
+        activeDrag.getWorldPosition(worldPos);
+        dragPlane.setFromNormalAndCoplanarPoint(camDir.negate(), worldPos);
 
         if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
-          dragOffset.copy(activeDrag.position).sub(planeHit);
+          dragOffset.copy(worldPos).sub(planeHit);
         }
 
         if (activeDrag.userData.type === 'thermometer') {
@@ -682,7 +765,9 @@
 
       if (activeDrag) {
         if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
-          activeDrag.position.copy(planeHit.clone().add(dragOffset));
+          const newWorldPos = planeHit.clone().add(dragOffset);
+          // تبدیل به مختصات محلی labStage
+          activeDrag.position.copy(labStage.worldToLocal(newWorldPos));
         }
         processInteractions();
       }
@@ -698,25 +783,34 @@
       activeDrag = null;
     }
 
+    // بررسی برخوردهای فیزیکی و آزمایشگاهی در هر دو حالت دسکتاپ و Quest
     function processInteractions() {
       if (!activeDrag) return;
       const type = activeDrag.userData.type;
 
+      // محاسبه مختصات سراسری برای تضمین دقت برخورد در حالت VR و Desktop
+      const dragPosWorld = new THREE.Vector3();
+      activeDrag.getWorldPosition(dragPosWorld);
+
       if (type === 'cup' && !simState.beakerFilled) {
-        const d = activeDrag.position.distanceTo(new THREE.Vector3(0, 1.8, 0));
-        if (d < 1.5) {
+        const beakerWorld = new THREE.Vector3();
+        beakerGroup.getWorldPosition(beakerWorld);
+        beakerWorld.y += 0.4;
+
+        const d = dragPosWorld.distanceTo(beakerWorld);
+        if (d < 0.65) {
           activeDrag.rotation.z = 1.15;
           beakerWater.visible = true;
 
-          let s = Math.min(6.0, beakerWater.scale.y + 0.06);
+          let s = Math.min(5.0, beakerWater.scale.y + 0.08);
           beakerWater.scale.y = s;
-          beakerWater.position.y = -0.62 + (s - 1) * 0.06;
-          cupWater.scale.y = Math.max(0.1, 1 - (s / 6.0));
+          beakerWater.position.y = -0.3 + (s - 1) * 0.03;
+          cupWater.scale.y = Math.max(0.1, 1 - (s / 5.0));
 
-          if (s >= 6.0) {
+          if (s >= 5.0) {
             simState.beakerFilled = true;
             updateStatus('beaker-state', 'پر از آب', '#38bdf8');
-            updateTip('کبریت را بردارید و روی سمباده بکشید تا روشن شود.');
+            updateTip('کبریت را روی سمباده بکشید تا مشتعل شود.');
             if (!renderer.xr.isPresenting) onPointerUp();
           }
         } else {
@@ -725,32 +819,38 @@
       }
 
       if (type === 'match') {
-        const strikerPos = new THREE.Vector3(-1.68, 0.12, 0.6);
-        const distStriker = activeDrag.position.distanceTo(strikerPos);
+        const boxWorld = new THREE.Vector3();
+        matchbox.getWorldPosition(boxWorld);
 
-        if (!simState.matchLit && distStriker < 0.95) {
+        if (!simState.matchLit && dragPosWorld.distanceTo(boxWorld) < 0.4) {
           simState.matchLit = true;
           matchFlame.visible = true;
           matchLight.intensity = 1.6;
-          emitSparks(matchGroup.position);
-          updateTip('کبریت روشن شد؛ آن را به خروجی چراغ بونزن نزدیک کنید.');
+          emitSparks(dragPosWorld);
+          updateTip('کبریت روشن شد؛ آن را به سر چراغ بونزن نزدیک کنید.');
         }
 
         if (simState.matchLit && !simState.burnerLit) {
-          const burnerHead = new THREE.Vector3(0, 1.0, 0);
-          if (activeDrag.position.distanceTo(burnerHead) < 1.0) {
+          const burnerHead = new THREE.Vector3();
+          burnerGroup.getWorldPosition(burnerHead);
+          burnerHead.y += 0.45;
+
+          if (dragPosWorld.distanceTo(burnerHead) < 0.45) {
             igniteBurner();
           }
         }
       }
 
       if (type === 'thermometer') {
-        const dx = activeDrag.position.x;
-        const dz = activeDrag.position.z;
-        const rad = Math.sqrt(dx * dx + dz * dz);
-        const tipY = activeDrag.position.y - 1.34;
+        const beakerCenter = new THREE.Vector3();
+        beakerGroup.getWorldPosition(beakerCenter);
 
-        if (simState.beakerFilled && rad < 0.75 && tipY < 1.55 && tipY > 0.5) {
+        const dx = dragPosWorld.x - beakerCenter.x;
+        const dz = dragPosWorld.z - beakerCenter.z;
+        const rad = Math.sqrt(dx * dx + dz * dz);
+        const tipY = dragPosWorld.y - 0.4;
+
+        if (simState.beakerFilled && rad < 0.35 && tipY < beakerCenter.y + 0.35 && tipY > beakerCenter.y - 0.25) {
           simState.thermoActive = true;
           updateStatus('thermo-state', 'داخل آب بشر', '#38bdf8');
         } else {
@@ -767,7 +867,7 @@
       simState.heatStartTime = performance.now();
 
       updateStatus('burner-state', 'شعله فعال', '#38bdf8');
-      updateTip('دماسنج را داخل آب بشر قرار دهید تا تغییرات دما ثبت شود.');
+      updateTip('دماسنج را داخل بشر قرار دهید تا تغییرات دما ثبت شود.');
 
       setTimeout(() => {
         matchFlame.visible = false;
@@ -779,15 +879,15 @@
     function emitSparks(pos) {
       for (let i = 0; i < 8; i++) {
         const p = new THREE.Mesh(
-          new THREE.SphereGeometry(0.02, 6, 6),
+          new THREE.SphereGeometry(0.012, 6, 6),
           new THREE.MeshBasicMaterial({ color: 0xfacc15 })
         );
         p.position.copy(pos);
         p.userData = {
           velocity: new THREE.Vector3(
-            (Math.random() - 0.5) * 0.08,
-            Math.random() * 0.08,
-            (Math.random() - 0.5) * 0.08
+            (Math.random() - 0.5) * 0.05,
+            Math.random() * 0.05,
+            (Math.random() - 0.5) * 0.05
           )
         };
         scene.add(p);
@@ -796,23 +896,35 @@
     }
 
     function emitBubble() {
-      if (!simState.beakerFilled || particles.bubbles.length > 20) return;
+      if (!simState.beakerFilled || particles.bubbles.length > 25) return;
       const b = new THREE.Mesh(
-        new THREE.SphereGeometry(0.025, 8, 8),
+        new THREE.SphereGeometry(0.015, 8, 8),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })
       );
-      b.position.set((Math.random() - 0.5) * 0.7, 0.65, (Math.random() - 0.5) * 0.7);
+      const beakerWorld = new THREE.Vector3();
+      beakerGroup.getWorldPosition(beakerWorld);
+      b.position.set(
+        beakerWorld.x + (Math.random() - 0.5) * 0.3,
+        beakerWorld.y - 0.15,
+        beakerWorld.z + (Math.random() - 0.5) * 0.3
+      );
       scene.add(b);
       particles.bubbles.push(b);
     }
 
     function emitSteam() {
-      if (!simState.beakerFilled || particles.steam.length > 20) return;
+      if (!simState.beakerFilled || particles.steam.length > 25) return;
       const s = new THREE.Mesh(
-        new THREE.SphereGeometry(0.08, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2 })
+        new THREE.SphereGeometry(0.045, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 })
       );
-      s.position.set((Math.random() - 0.5) * 0.4, 1.75, (Math.random() - 0.5) * 0.4);
+      const beakerWorld = new THREE.Vector3();
+      beakerGroup.getWorldPosition(beakerWorld);
+      s.position.set(
+        beakerWorld.x + (Math.random() - 0.5) * 0.2,
+        beakerWorld.y + 0.35,
+        beakerWorld.z + (Math.random() - 0.5) * 0.2
+      );
       scene.add(s);
       particles.steam.push(s);
     }
@@ -827,12 +939,13 @@
         $('temp-state').innerText = simState.waterTemp.toFixed(1) + ' °C';
 
         if (simState.waterTemp > 50 && Math.random() < 0.08) emitSteam();
-        if (simState.waterTemp > 72 && Math.random() < 0.12) emitBubble();
+        if (simState.waterTemp > 72 && Math.random() < 0.14) emitBubble();
         if (simState.waterTemp >= 100.0) {
           simState.waterTemp = 100.0;
           if (Math.random() < 0.25) emitSteam();
           if (Math.random() < 0.2) emitBubble();
         }
+        updateVRHUD();
       }
 
       const targetTemp = simState.thermoActive ? simState.waterTemp : 25.0;
@@ -844,7 +957,7 @@
       for (let i = particles.sparks.length - 1; i >= 0; i--) {
         const p = particles.sparks[i];
         p.position.add(p.userData.velocity);
-        p.userData.velocity.y -= 0.003;
+        p.userData.velocity.y -= 0.002;
         p.scale.multiplyScalar(0.92);
         if (p.scale.x < 0.05) {
           scene.remove(p);
@@ -854,7 +967,7 @@
 
       for (let i = particles.bubbles.length - 1; i >= 0; i--) {
         const b = particles.bubbles[i];
-        b.position.y += 0.016;
+        b.position.y += 0.008;
         if (b.position.y > 1.45) {
           scene.remove(b);
           particles.bubbles.splice(i, 1);
@@ -863,7 +976,7 @@
 
       for (let i = particles.steam.length - 1; i >= 0; i--) {
         const s = particles.steam[i];
-        s.position.y += 0.018;
+        s.position.y += 0.01;
         s.scale.multiplyScalar(1.01);
         s.material.opacity -= 0.003;
         if (s.material.opacity <= 0.01) {
