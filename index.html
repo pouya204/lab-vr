@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>شبیه‌ساز آزمایشگاه | پویا الهامی</title>\n  <!-- lab-vr-fixed: WebXR/IWE controller grab fix -->
+  <title>شبیه‌ساز آزمایشگاه | پویا الهامی</title>
   <style>
     * {
       box-sizing: border-box;
@@ -185,8 +185,8 @@
   <div id="guide-tip" class="guide">لیوان آب را با کلیک چپ بکشید و بالای بشر ببرید.</div>
 
   <div class="help-box" id="html-help">
-    <b>دسکتاپ:</b> کلیک چپ جابجایی | راست چرخش دوربین<br/>
-    <b>روی Quest 3:</b> کلید Trigger برای گرفتن وسایل
+    <b>دسکتاپ:</b> درگ موس برای وسایل | کلیک راست چرخش<br/>
+    <b>در واقعیت مجازی:</b> پرتو را روی وسیله ببرید و کلید Trigger یا Grip را نگه دارید
   </div>
 
   <button class="reset-btn" onclick="location.reload()">تنظیم مجدد</button>
@@ -197,14 +197,13 @@
 
   <script>
     let scene, camera, renderer, controls;
-    let labStage; // گروه ریشه آزمایشگاه برای تنظیم دقیق فاصله در واقعیت مجازی
+    let labStage;
     let cupGroup, cupWater;
     let beakerGroup, beakerWater;
     let thermometerGroup, lcdCanvas, lcdCtx, lcdTexture;
     let matchGroup, matchFlame, matchLight, matchbox;
     let burnerGroup, burnerFlameInner, burnerFlameOuter, burnerLight;
 
-    // HUD سه‌بعدی شناور در VR
     let vrHudMesh, vrHudCanvas, vrHudCtx, vrHudTexture;
 
     let activeDrag = null;
@@ -218,10 +217,10 @@
 
     // متغیرهای WebXR
     let controller1, controller2;
+    let controllerGrip1, controllerGrip2;
     let xrGrabbed = null;
     const xrRaycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
-    const xrHover = new Map();
 
     // موقعیت‌های پیش‌فرض محلی (Local به labStage)
     const POS_CUP_DEF = new THREE.Vector3(0.55, 0.55, 0.15);
@@ -267,21 +266,18 @@
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0a0f1d);
 
-      // گروه والد کل میز و وسایل تا دید کاربر دقیقاً روبروی میز باشد
       labStage = new THREE.Group();
-      labStage.position.set(0, 0.75, -1.35); // ارتفاع و عمق ایده‌آل دست و چشم در Quest 3
+      labStage.position.set(0, 0.75, -1.35);
       scene.add(labStage);
 
       camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 50);
-      camera.position.set(0, 1.6, 0.55); // موقعیت چشم در دسکتاپ و VR یکسان‌سازی شد
+      camera.position.set(0, 1.6, 0.55);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.shadowMap.enabled = true;
       renderer.xr.enabled = true;
-
-      // مرجع ارتفاعی استاندارد برای WebXR / Meta Quest / IWE
       renderer.xr.setReferenceSpaceType('local-floor');
 
       container.appendChild(renderer.domElement);
@@ -327,7 +323,6 @@
     }
 
     function initEnvironment() {
-      // کف واقعی اتاق
       const floor = new THREE.Mesh(
         new THREE.PlaneGeometry(12, 12),
         new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
@@ -337,7 +332,6 @@
       floor.receiveShadow = true;
       scene.add(floor);
 
-      // میز کار آزمایشگاهی
       const table = new THREE.Mesh(
         new THREE.BoxGeometry(2.2, 0.08, 1.3),
         new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 })
@@ -346,7 +340,6 @@
       table.receiveShadow = true;
       labStage.add(table);
 
-      // پایه‌های میز
       const legGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.75, 16);
       const legMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8 });
       [[-0.95, -0.55], [0.95, -0.55], [-0.95, 0.55], [0.95, 0.55]].forEach(([x, z]) => {
@@ -359,7 +352,7 @@
     function createHitbox(group, size) {
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(size.x, size.y, size.z),
-        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthWrite: false })
+        new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0, depthWrite: false })
       );
       box.userData = {
         parentGroup: group,
@@ -419,7 +412,7 @@
       cupWater.position.y = 0.02;
       cupGroup.add(cupWater);
 
-      createHitbox(cupGroup, new THREE.Vector3(0.5, 0.6, 0.5));
+      createHitbox(cupGroup, new THREE.Vector3(0.6, 0.7, 0.6));
       labStage.add(cupGroup);
     }
 
@@ -457,7 +450,7 @@
       thermometerGroup.add(screen);
 
       drawDisplay(simState.displayTemp);
-      createHitbox(thermometerGroup, new THREE.Vector3(0.4, 0.8, 0.4));
+      createHitbox(thermometerGroup, new THREE.Vector3(0.5, 0.9, 0.5));
       labStage.add(thermometerGroup);
     }
 
@@ -508,7 +501,7 @@
       matchLight.position.set(0, 0.07, -0.21);
       matchGroup.add(matchLight);
 
-      createHitbox(matchGroup, new THREE.Vector3(0.4, 0.4, 0.6));
+      createHitbox(matchGroup, new THREE.Vector3(0.5, 0.5, 0.7));
       labStage.add(matchGroup);
     }
 
@@ -565,7 +558,6 @@
       labStage.add(burnerGroup);
     }
 
-    // ساخت پنل HUD شناور داخل فضا مخصوص هدست Quest
     function initVRHUD() {
       vrHudCanvas = document.createElement('canvas');
       vrHudCanvas.width = 512;
@@ -587,7 +579,6 @@
       if (!vrHudCtx) return;
       vrHudCtx.clearRect(0, 0, 512, 256);
 
-      // پس‌زمینه شیشه‌ای تیره
       vrHudCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
       vrHudCtx.beginPath();
       vrHudCtx.roundRect ? vrHudCtx.roundRect(10, 10, 492, 236, 18) : vrHudCtx.fillRect(10, 10, 492, 236);
@@ -596,18 +587,15 @@
       vrHudCtx.strokeStyle = '#38bdf8';
       vrHudCtx.stroke();
 
-      // عنوان و نویسنده
       vrHudCtx.fillStyle = '#38bdf8';
       vrHudCtx.font = 'bold 24px sans-serif';
       vrHudCtx.textAlign = 'right';
       vrHudCtx.fillText('شبیه‌ساز آزمایشگاه شیمی (پویا الهامی)', 470, 50);
 
-      // راهنما
       vrHudCtx.fillStyle = '#fde047';
       vrHudCtx.font = '19px sans-serif';
       vrHudCtx.fillText(simState.guideText, 470, 95);
 
-      // مقادیر دما و وضعیت
       vrHudCtx.fillStyle = '#94a3b8';
       vrHudCtx.font = '18px sans-serif';
       vrHudCtx.fillText('دمای آب: ' + simState.waterTemp.toFixed(1) + ' °C', 470, 140);
@@ -632,7 +620,7 @@
     }
 
     // ==========================================
-    // راه‌اندازی استاندارد WebXR برای عینک Quest 3
+    // راه‌اندازی پیشرفته و استاندارد WebXR
     // ==========================================
     function checkXRSupport() {
       if ('xr' in navigator) {
@@ -654,14 +642,15 @@
 
                   session.addEventListener('end', () => {
                     currentSession = null;
-                    xrGrabbed = null;
+                    if (xrGrabbed) {
+                      labStage.attach(xrGrabbed.object);
+                      xrGrabbed = null;
+                    }
                     activeDrag = null;
                     btn.textContent = 'ورود به واقعیت مجازی (Meta Quest)';
                   });
                 }).catch((error) => {
                   console.error('WebXR session error:', error);
-                  btn.textContent = 'ورود به واقعیت مجازی (Meta Quest)';
-                  updateTip('خطا در شروع WebXR؛ Console مرورگر را بررسی کنید.');
                 });
               } else {
                 currentSession.end();
@@ -675,101 +664,98 @@
     function setupXRControllers() {
       const lineGeo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(0, 0, -1.8)
+        new THREE.Vector3(0, 0, -3.0)
       ]);
-      const lineMat = new THREE.LineBasicMaterial({
-        color: 0x38bdf8
-      });
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
 
+      // Controller 0
       controller1 = renderer.xr.getController(0);
-      controller1.userData.hand = 'left';
-
       controller1.addEventListener('selectstart', onXRSelectStart);
       controller1.addEventListener('selectend', onXRSelectEnd);
       controller1.addEventListener('squeezestart', onXRSqueezeStart);
       controller1.addEventListener('squeezeend', onXRSqueezeEnd);
-
-      const line1 = new THREE.Line(lineGeo, lineMat);
-      line1.name = 'xr-ray-left';
-      controller1.add(line1);
+      controller1.add(new THREE.Line(lineGeo, lineMat));
       scene.add(controller1);
 
+      // Controller 1
       controller2 = renderer.xr.getController(1);
-      controller2.userData.hand = 'right';
-
       controller2.addEventListener('selectstart', onXRSelectStart);
       controller2.addEventListener('selectend', onXRSelectEnd);
       controller2.addEventListener('squeezestart', onXRSqueezeStart);
       controller2.addEventListener('squeezeend', onXRSqueezeEnd);
-
-      const line2 = new THREE.Line(lineGeo, lineMat);
-      line2.name = 'xr-ray-right';
-      controller2.add(line2);
+      controller2.add(new THREE.Line(lineGeo, lineMat));
       scene.add(controller2);
     }
 
-    // به‌روزرسانی ماتریس‌های جهان قبل از Raycast.
-    // این بخش برای شبیه‌ساز IWE مهم است، چون pose کنترلر بین فریم‌ها تغییر می‌کند.
     function getXRIntersections(controller) {
       if (!controller) return [];
 
       controller.updateMatrixWorld(true);
-      labStage.updateMatrixWorld(true);
-
       tempMatrix.identity().extractRotation(controller.matrixWorld);
 
-      xrRaycaster.ray.origin.setFromMatrixPosition(
-        controller.matrixWorld
-      );
-
-      xrRaycaster.ray.direction
-        .set(0, 0, -1)
-        .applyMatrix4(tempMatrix)
-        .normalize();
-
+      xrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      xrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
       xrRaycaster.near = 0.01;
-      xrRaycaster.far = 3.0;
+      xrRaycaster.far = 4.0;
 
-      // hitboxها ممکن است فرزند گروهی باشند که همین فریم جابه‌جا شده است.
-      hitTargets.forEach((target) => {
-        if (target && target.parent) {
-          target.parent.updateMatrixWorld(true);
-        }
-      });
-
-      return xrRaycaster.intersectObjects(hitTargets, false);
+      // جستجو در بین کل اهداف hitbox
+      return xrRaycaster.intersectObjects(hitTargets, true);
     }
 
     function getXRGrabRoot(hit) {
       if (!hit || !hit.object) return null;
-
-      const root = hit.object.userData.parentGroup;
-
-      if (!root || !root.userData) return null;
-
-      const allowedTypes = ['cup', 'match', 'thermometer'];
-
-      if (!allowedTypes.includes(root.userData.type)) {
-        return null;
+      let obj = hit.object;
+      while (obj && !obj.userData.parentGroup && obj.parent !== labStage && obj !== scene) {
+        obj = obj.parent;
       }
-
-      return root;
+      return obj.userData.parentGroup || obj;
     }
 
     function grabXRObject(controller) {
       if (!controller || xrGrabbed) return false;
 
       const hits = getXRIntersections(controller);
-
-      if (!hits.length) {
-        console.log('XR: no hit target');
-        return false;
-      }
+      if (!hits.length) return false;
 
       const root = getXRGrabRoot(hits[0]);
+      if (!root || !root.userData || !RSqueezeStart);
+      controller2.addEventListener('squeezeend', onXRSqueezeEnd);
+      controller2.add(new THREE.Line(lineGeo, lineMat));
+      scene.add(controller2);
+    }
 
-      if (!root) {
-        console.log('XR: hit target has no valid grab root');
+    function getXRIntersections(controller) {
+      if (!controller) return [];
+
+      controller.updateMatrixWorld(true);
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+
+      xrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      xrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+      xrRaycaster.near = 0.01;
+      xrRaycaster.far = 4.0;
+
+      // جستجو در بین کل اهداف hitbox
+      return xrRaycaster.intersectObjects(hitTargets, true);
+    }
+
+    function getXRGrabRoot(hit) {
+      if (!hit || !hit.object) return null;
+      let obj = hit.object;
+      while (obj && !obj.userData.parentGroup && obj.parent !== labStage && obj !== scene) {
+        obj = obj.parent;
+      }
+      return obj.userData.parentGroup || obj;
+    }
+
+    function grabXRObject(controller) {
+      if (!controller || xrGrabbed) return false;
+
+      const hits = getXRIntersections(controller);
+      if (!hits.length) return false;
+
+      const root = getXRGrabRoot(hits[0]);
+      if (!root || !root.userData || !['cup', 'match', 'thermometer'].includes(root.userData.type)) {
         return false;
       }
 
@@ -777,108 +763,23 @@
         object: root,
         controller: controller
       };
-
       activeDrag = root;
 
       if (root.userData.type === 'thermometer') {
         root.rotation.set(0, 0, 0);
       }
 
-      // attach() موقعیت جهانی شیء را حفظ می‌کند و شیء را
-      // به کنترلر متصل می‌کند تا همراه کنترلر حرکت کند.
       controller.attach(root);
-      root.updateMatrixWorld(true);
-
-      console.log('XR Grab:', root.userData.type);
-
       return true;
     }
 
-    function releaseXRObject(controller) {
-      if (
-        !xrGrabbed ||
-        xrGrabbed.controller !== controller
-      ) {
-        return false;
-      }
-
-      const object = xrGrabbed.object;
-
-      // ابتدا به labStage برگردان تا مختصات محلی پروژه حفظ شود.
-      labStage.attach(object);
-      object.updateMatrixWorld(true);
-
-      activeDrag = object;
-
-      // تعامل باید قبل از finishDrag بررسی شود.
-      processInteractions();
-
-      finishDrag(object);
-
-      console.log('XR Release:', object.userData.type);
-
-      xrGrabbed = null;
-      activeDrag = null;
-
-      return true;
-    }
-
-    function onXRSelectStart(e) {
-      grabXRObject(e.target);
-    }
-
-    function onXRSelectEnd(e) {
-      releaseXRObject(e.target);
-    }
-
-    // پشتیبانی از Grip علاوه بر Trigger.
-    // در IWE بسته به نگاشت کنترلر می‌توان هر دو مسیر را تست کرد.
-    function onXRSqueezeStart(e) {
-      grabXRObject(e.target);
-    }
-
-    function onXRSqueezeEnd(e) {
-      releaseXRObject(e.target);
-    }
-
-    function updateXRControllers() {
-      if (!renderer.xr.isPresenting) return;
-
-      const controllers = [controller1, controller2];
-
-      for (const controller of controllers) {
-        if (!controller) continue;
-
-        const hits = getXRIntersections(controller);
-
-        if (hits.length) {
-          const root = getXRGrabRoot(hits[0]);
-
-          if (root) {
-            xrHover.set(controller, root);
-          } else {
-            xrHover.delete(controller);
-          }
-        } else {
-          xrHover.delete(controller);
-        }
+    functionPI / 2);
       }
     }
 
-    function finishDrag(obj) {
-      const type = obj.userData.type;
-      if (type === 'cup') {
-        obj.rotation.set(0, 0, 0);
-        obj.position.copy(POS_CUP_DEF);
-      } else if (type === 'match' && !simState.burnerLit) {
-        obj.position.copy(POS_MATCH_DEF);
-      } else if (type === 'thermometer' && !simState.thermoActive) {
-        obj.position.copy(POS_THERMO_DEF);
-        obj.rotation.set(0, 0, Math.PI / 2);
-      }
-    }
-
-    // تعاملات دسکتاپ
+    // ==========================================
+    // تعاملات دسکتاپ (Mouse / Pointer)
+    // ==========================================
     function setPointerCoords(e) {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -891,10 +792,10 @@
       if (e.button !== undefined && e.button !== 0) return;
       setPointerCoords(e);
 
-      const hits = raycaster.intersectObjects(hitTargets, false);
+      const hits = raycaster.intersectObjects(hitTargets, true);
       if (hits.length > 0) {
-        const root = hits[0].object.userData.parentGroup;
-        if (!root) return;
+        const root = getXRGrabRoot(hits[0]);
+        if (!root || !['cup', 'match', 'thermometer'].includes(root.userData.type)) return;
 
         activeDrag = root;
         controls.enabled = false;
@@ -924,7 +825,6 @@
       if (activeDrag) {
         if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
           const newWorldPos = planeHit.clone().add(dragOffset);
-          // تبدیل به مختصات محلی labStage
           activeDrag.position.copy(labStage.worldToLocal(newWorldPos));
         }
         processInteractions();
@@ -941,15 +841,17 @@
       activeDrag = null;
     }
 
-    // بررسی برخوردهای فیزیکی و آزمایشگاهی در هر دو حالت دسکتاپ و Quest
+    // ==========================================
+    // بررسی واکنش‌های آزمایشگاهی
+    // ==========================================
     function processInteractions() {
       if (!activeDrag) return;
       const type = activeDrag.userData.type;
 
-      // محاسبه مختصات سراسری برای تضمین دقت برخورد در حالت VR و Desktop
       const dragPosWorld = new THREE.Vector3();
       activeDrag.getWorldPosition(dragPosWorld);
 
+      // ۱. خالی کردن آب لیوان در بشر
       if (type === 'cup' && !simState.beakerFilled) {
         const beakerWorld = new THREE.Vector3();
         beakerGroup.getWorldPosition(beakerWorld);
@@ -960,22 +862,22 @@
           activeDrag.rotation.z = 1.15;
           beakerWater.visible = true;
 
-          let s = Math.min(5.0, beakerWater.scale.y + 0.08);
+          let s = Math.min(5.0, beakerWater.scale.y + 0.1);
           beakerWater.scale.y = s;
           beakerWater.position.y = -0.3 + (s - 1) * 0.03;
-          cupWater.scale.y = Math.max(0.1, 1 - (s / 5.0));
+          cupWater.scale.y = Math.max(0.05, 1 - (s / 5.0));
 
           if (s >= 5.0) {
             simState.beakerFilled = true;
             updateStatus('beaker-state', 'پر از آب', '#38bdf8');
             updateTip('کبریت را روی سمباده بکشید تا مشتعل شود.');
-            if (!renderer.xr.isPresenting) onPointerUp();
           }
         } else {
           activeDrag.rotation.z = 0;
         }
       }
 
+      // ۲. روشن کردن کبریت و چراغ بونزن
       if (type === 'match') {
         const boxWorld = new THREE.Vector3();
         matchbox.getWorldPosition(boxWorld);
@@ -999,6 +901,7 @@
         }
       }
 
+      // ۳. دماسنج
       if (type === 'thermometer') {
         const beakerCenter = new THREE.Vector3();
         beakerGroup.getWorldPosition(beakerCenter);
@@ -1008,7 +911,7 @@
         const rad = Math.sqrt(dx * dx + dz * dz);
         const tipY = dragPosWorld.y - 0.4;
 
-        if (simState.beakerFilled && rad < 0.35 && tipY < beakerCenter.y + 0.35 && tipY > beakerCenter.y - 0.25) {
+        if (simState.beakerFilled && rad < 0.4 && tipY < beakerCenter.y + 0.4 && tipY > beakerCenter.y - 0.3) {
           simState.thermoActive = true;
           updateStatus('thermo-state', 'داخل آب بشر', '#38bdf8');
         } else {
@@ -1030,8 +933,10 @@
       setTimeout(() => {
         matchFlame.visible = false;
         matchLight.intensity = 0;
-        matchGroup.position.copy(POS_MATCH_DEF);
-      }, 400);
+        if (!xrGrabbed || xrGrabbed.object !== matchGroup) {
+          matchGroup.position.copy(POS_MATCH_DEF);
+        }
+      }, 500);
     }
 
     function emitSparks(pos) {
@@ -1157,10 +1062,6 @@
       if (matchFlame.visible) {
         matchFlame.scale.y = 1 + Math.sin(t * 5.0) * 0.15;
       }
-
-      // در هر فریم pose کنترلر و Ray را به‌روز نگه می‌داریم.
-      // هنگام Grab نیز processInteractions در همین فریم اجرا می‌شود.
-      updateXRControllers();
 
       if (xrGrabbed) {
         processInteractions();
