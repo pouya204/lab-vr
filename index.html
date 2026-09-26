@@ -217,7 +217,6 @@
 
     // متغیرهای WebXR
     let controller1, controller2;
-    let controllerGrip1, controllerGrip2;
     let xrGrabbed = null;
     const xrRaycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
@@ -315,8 +314,8 @@
     }
 
     function initLighting() {
-      scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-      const light = new THREE.DirectionalLight(0xffffff, 1.1);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+      const light = new THREE.DirectionalLight(0xffffff, 1.2);
       light.position.set(2, 6, 2);
       light.castShadow = true;
       scene.add(light);
@@ -352,7 +351,7 @@
     function createHitbox(group, size) {
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(size.x, size.y, size.z),
-        new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0, depthWrite: false })
+        new THREE.MeshBasicMaterial({ visible: false })
       );
       box.userData = {
         parentGroup: group,
@@ -366,12 +365,13 @@
       beakerGroup = new THREE.Group();
       beakerGroup.position.set(0, 0.55, 0);
 
+      // متریال شیشه واضح و شفاف
       const glassMat = new THREE.MeshStandardMaterial({
-        color: 0xe2e8f0,
+        color: 0xcfe8ff,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.55,
         roughness: 0.1,
-        metalness: 0.1,
+        metalness: 0.2,
         side: THREE.DoubleSide
       });
 
@@ -379,12 +379,21 @@
       const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.02, 32), glassMat);
       btm.position.y = -0.32;
 
+      // لبه دهانه شیشه برای دید بهتر
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(0.35, 0.015, 12, 32),
+        new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.2 })
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.325;
+
       beakerGroup.add(cyl);
       beakerGroup.add(btm);
+      beakerGroup.add(rim);
 
       beakerWater = new THREE.Mesh(
         new THREE.CylinderGeometry(0.33, 0.33, 0.05, 28),
-        new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.75, roughness: 0.2 })
+        new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.8, roughness: 0.1 })
       );
       beakerWater.position.y = -0.3;
       beakerWater.visible = false;
@@ -400,7 +409,7 @@
 
       const body = new THREE.Mesh(
         new THREE.CylinderGeometry(0.18, 0.2, 0.45, 28),
-        new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.3 })
+        new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.3 })
       );
       body.castShadow = true;
       cupGroup.add(body);
@@ -412,7 +421,7 @@
       cupWater.position.y = 0.02;
       cupGroup.add(cupWater);
 
-      createHitbox(cupGroup, new THREE.Vector3(0.6, 0.7, 0.6));
+      createHitbox(cupGroup, new THREE.Vector3(0.5, 0.6, 0.5));
       labStage.add(cupGroup);
     }
 
@@ -450,7 +459,7 @@
       thermometerGroup.add(screen);
 
       drawDisplay(simState.displayTemp);
-      createHitbox(thermometerGroup, new THREE.Vector3(0.5, 0.9, 0.5));
+      createHitbox(thermometerGroup, new THREE.Vector3(0.4, 0.8, 0.4));
       labStage.add(thermometerGroup);
     }
 
@@ -501,7 +510,7 @@
       matchLight.position.set(0, 0.07, -0.21);
       matchGroup.add(matchLight);
 
-      createHitbox(matchGroup, new THREE.Vector3(0.5, 0.5, 0.7));
+      createHitbox(matchGroup, new THREE.Vector3(0.4, 0.4, 0.6));
       labStage.add(matchGroup);
     }
 
@@ -620,7 +629,7 @@
     }
 
     // ==========================================
-    // راه‌اندازی پیشرفته و استاندارد WebXR
+    // راه‌اندازی استاندارد WebXR برای عینک و شبیه‌ساز
     // ==========================================
     function checkXRSupport() {
       if ('xr' in navigator) {
@@ -666,23 +675,23 @@
         new THREE.Vector3(0, 0, 0),
         new THREE.Vector3(0, 0, -3.0)
       ]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
 
-      // Controller 0
+      // دست چپ
       controller1 = renderer.xr.getController(0);
       controller1.addEventListener('selectstart', onXRSelectStart);
       controller1.addEventListener('selectend', onXRSelectEnd);
-      controller1.addEventListener('squeezestart', onXRSqueezeStart);
-      controller1.addEventListener('squeezeend', onXRSqueezeEnd);
+      controller1.addEventListener('squeezestart', onXRSelectStart);
+      controller1.addEventListener('squeezeend', onXRSelectEnd);
       controller1.add(new THREE.Line(lineGeo, lineMat));
       scene.add(controller1);
 
-      // Controller 1
+      // دست راست
       controller2 = renderer.xr.getController(1);
       controller2.addEventListener('selectstart', onXRSelectStart);
       controller2.addEventListener('selectend', onXRSelectEnd);
-      controller2.addEventListener('squeezestart', onXRSqueezeStart);
-      controller2.addEventListener('squeezeend', onXRSqueezeEnd);
+      controller2.addEventListener('squeezestart', onXRSelectStart);
+      controller2.addEventListener('squeezeend', onXRSelectEnd);
       controller2.add(new THREE.Line(lineGeo, lineMat));
       scene.add(controller2);
     }
@@ -698,51 +707,13 @@
       xrRaycaster.near = 0.01;
       xrRaycaster.far = 4.0;
 
-      // جستجو در بین کل اهداف hitbox
       return xrRaycaster.intersectObjects(hitTargets, true);
     }
 
     function getXRGrabRoot(hit) {
       if (!hit || !hit.object) return null;
       let obj = hit.object;
-      while (obj && !obj.userData.parentGroup && obj.parent !== labStage && obj !== scene) {
-        obj = obj.parent;
-      }
-      return obj.userData.parentGroup || obj;
-    }
-
-    function grabXRObject(controller) {
-      if (!controller || xrGrabbed) return false;
-
-      const hits = getXRIntersections(controller);
-      if (!hits.length) return false;
-
-      const root = getXRGrabRoot(hits[0]);
-      if (!root || !root.userData || !RSqueezeStart);
-      controller2.addEventListener('squeezeend', onXRSqueezeEnd);
-      controller2.add(new THREE.Line(lineGeo, lineMat));
-      scene.add(controller2);
-    }
-
-    function getXRIntersections(controller) {
-      if (!controller) return [];
-
-      controller.updateMatrixWorld(true);
-      tempMatrix.identity().extractRotation(controller.matrixWorld);
-
-      xrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-      xrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
-      xrRaycaster.near = 0.01;
-      xrRaycaster.far = 4.0;
-
-      // جستجو در بین کل اهداف hitbox
-      return xrRaycaster.intersectObjects(hitTargets, true);
-    }
-
-    function getXRGrabRoot(hit) {
-      if (!hit || !hit.object) return null;
-      let obj = hit.object;
-      while (obj && !obj.userData.parentGroup && obj.parent !== labStage && obj !== scene) {
+      while (obj && !obj.userData.parentGroup && obj.parent && obj.parent !== labStage && obj !== scene) {
         obj = obj.parent;
       }
       return obj.userData.parentGroup || obj;
@@ -773,12 +744,30 @@
       return true;
     }
 
-    functionPI / 2);
-      }
+    function releaseXRObject(controller) {
+      if (!xrGrabbed || xrGrabbed.controller !== controller) return false;
+
+      const object = xrGrabbed.object;
+      labStage.attach(object);
+
+      activeDrag = object;
+      processInteractions();
+      activeDrag = null;
+      xrGrabbed = null;
+
+      return true;
+    }
+
+    function onXRSelectStart(e) {
+      grabXRObject(e.target);
+    }
+
+    function onXRSelectEnd(e) {
+      releaseXRObject(e.target);
     }
 
     // ==========================================
-    // تعاملات دسکتاپ (Mouse / Pointer)
+    // تعاملات دسکتاپ
     // ==========================================
     function setPointerCoords(e) {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -837,7 +826,6 @@
 
       controls.enabled = true;
       $('canvas-container').classList.remove('grabbing');
-      finishDrag(activeDrag);
       activeDrag = null;
     }
 
@@ -933,9 +921,6 @@
       setTimeout(() => {
         matchFlame.visible = false;
         matchLight.intensity = 0;
-        if (!xrGrabbed || xrGrabbed.object !== matchGroup) {
-          matchGroup.position.copy(POS_MATCH_DEF);
-        }
       }, 500);
     }
 
