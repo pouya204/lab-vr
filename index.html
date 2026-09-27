@@ -188,10 +188,10 @@
     </div>
   </div>
 
-  <div id="guide-tip" class="guide">لیوان آب را بردارید و بالای بشر خالی کنید.</div>
+  <div id="guide-tip" class="guide">لیوان شیشه‌ای آب را بردارید و بالای بشر خالی کنید.</div>
 
   <div class="help-box" id="html-help">
-    <b>دسکتاپ:</b> درگ موس برای وسایل | کلیک راست چرخش<br/>
+    <b>دسکتاپ:</b> درگ موس برای وسایل | کلیک راست چرخش دوربین<br/>
     <b>در Quest:</b> نزدیک‌کردن انگشت شست و اشاره (Pinch) جهت گرفتن مستقیم اشیا
   </div>
 
@@ -204,8 +204,13 @@
   <script>
     let scene, camera, renderer, controls;
     let labStage;
-    let cupGroup, cupWater;
-    let beakerGroup, beakerWater;
+    
+    // ظروف و آب
+    let cupGroup, cupWaterGroup, cupWaterMesh, cupWaterTop;
+    let beakerGroup, beakerWaterGroup, beakerWaterMesh, beakerWaterTop;
+    let waterStreamMesh; // جریان باریک آب هنگام ریختن
+
+    // سایر تجهیزات
     let thermometerGroup, lcdCanvas, lcdCtx, lcdTexture;
     let matchGroup, matchFlame, matchLight, matchbox;
     let burnerGroup, burnerFlameInner, burnerFlameOuter, burnerLight;
@@ -222,7 +227,7 @@
 
     const hitTargets = [];
 
-    // کنترلرها و دست‌ها
+    // کنترلرهای VR
     let controller1, controller2;
     let hand1, hand2;
     let controllerLines = [];
@@ -230,17 +235,18 @@
     const xrRaycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
 
-    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.265, 0.15);
+    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.25, 0.15);
     const POS_THERMO_DEF = new THREE.Vector3(0.45, 0.12, 0.35);
     const POS_MATCH_DEF = new THREE.Vector3(-0.5, 0.055, 0.25);
 
     const OBJECT_TABLE_OFFSETS = {
-      cup: 0.225,
+      cup: 0.22,
       thermometer: 0.08,
       match: 0.02
     };
 
     const simState = {
+      pourProgress: 0.0, // 0 = لیوان پر، بشر خالی | 1 = لیوان کاملاً خالی، بشر پر
       beakerFilled: false,
       burnerLit: false,
       matchLit: false,
@@ -249,7 +255,7 @@
       displayTemp: 25.0,
       heatStartTime: null,
       heatDuration: 120.0,
-      guideText: 'لیوان آب را بردارید و بالای بشر خالی کنید.'
+      guideText: 'لیوان شیشه‌ای آب را بردارید و بالای بشر خالی کنید.'
     };
 
     const particles = {
@@ -273,6 +279,35 @@
       updateVRHUD();
     };
 
+    // به‌روزرسانی ابعاد و ارتفاع ستون‌های آب هر دو ظرف
+    function updateWaterVolumes() {
+      const p = simState.pourProgress; // 0 تا 1
+
+      // ۱. آب لیوان (مبدأ)
+      const cupRatio = Math.max(0.0001, 1.0 - p);
+      const cupHeight = 0.34;
+      const cupBaseY = -0.17;
+
+      cupWaterMesh.scale.set(1, cupRatio, 1);
+      // انتقال مرکز استوانه متناسب با ارتفاع باقی‌مانده
+      cupWaterMesh.position.y = cupBaseY + (cupHeight * cupRatio) / 2;
+      cupWaterTop.position.y = cupBaseY + (cupHeight * cupRatio);
+      cupWaterGroup.visible = p < 0.99;
+
+      // ۲. آب بشر (مقصد)
+      const beakerHeight = 0.42;
+      const beakerBaseY = -0.30;
+
+      if (p > 0.005) {
+        beakerWaterGroup.visible = true;
+        beakerWaterMesh.scale.set(1, p, 1);
+        beakerWaterMesh.position.y = beakerBaseY + (beakerHeight * p) / 2;
+        beakerWaterTop.position.y = beakerBaseY + (beakerHeight * p);
+      } else {
+        beakerWaterGroup.visible = false;
+      }
+    }
+
     function resetEnvironment() {
       if (xrGrabbed) {
         labStage.attach(xrGrabbed.object);
@@ -289,6 +324,7 @@
         particles[key] = [];
       });
 
+      simState.pourProgress = 0.0;
       simState.beakerFilled = false;
       simState.burnerLit = false;
       simState.matchLit = false;
@@ -296,17 +332,14 @@
       simState.waterTemp = 25.0;
       simState.displayTemp = 25.0;
       simState.heatStartTime = null;
-      simState.guideText = 'لیوان آب را بردارید و بالای بشر خالی کنید.';
+      simState.guideText = 'لیوان شیشه‌ای آب را بردارید و بالای بشر خالی کنید.';
 
       if (cupGroup.parent !== labStage) labStage.attach(cupGroup);
       cupGroup.position.copy(POS_CUP_DEF);
       cupGroup.rotation.set(0, 0, 0);
-      cupWater.scale.set(1, 1, 1);
-      cupWater.position.set(0, 0.02, 0);
 
-      beakerWater.visible = false;
-      beakerWater.scale.set(1, 1, 1);
-      beakerWater.position.set(0, -0.27, 0);
+      waterStreamMesh.visible = false;
+      updateWaterVolumes();
 
       if (matchGroup.parent !== labStage) labStage.attach(matchGroup);
       matchGroup.position.copy(POS_MATCH_DEF);
@@ -380,7 +413,7 @@
       scene.add(labStage);
 
       camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 50);
-      camera.position.set(0, 1.5, 0.7);
+      camera.position.set(0, 1.45, 0.75);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -405,6 +438,7 @@
       initEnvironment();
       initBeaker();
       initCup();
+      initWaterStream();
       initThermometer();
       initMatchbox();
       initBurner();
@@ -423,13 +457,14 @@
       window.addEventListener('pointercancel', onPointerUp);
       window.addEventListener('resize', onResize);
 
+      updateWaterVolumes();
       renderer.setAnimationLoop(renderLoop);
     }
 
     function initLighting() {
-      scene.add(new THREE.AmbientLight(0xffffff, 0.95));
-      const light = new THREE.DirectionalLight(0xffffff, 1.3);
-      light.position.set(2, 6, 2);
+      scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      const light = new THREE.DirectionalLight(0xffffff, 1.4);
+      light.position.set(2.5, 6, 2.5);
       light.castShadow = true;
       scene.add(light);
     }
@@ -525,22 +560,23 @@
       hitTargets.push(box);
     }
 
+    // ۱. بشر شیشه‌ای آزمایشگاهی
     function initBeaker() {
       beakerGroup = new THREE.Group();
       beakerGroup.position.set(0, 0.58, 0);
 
+      // متریال شیشهٔ بسیار شفاف و باکیفیت
       const glassMat = new THREE.MeshStandardMaterial({
-        color: 0xbae6fd,
+        color: 0xe0f2fe,
         transparent: true,
-        opacity: 0.45,
-        roughness: 0.1,
-        metalness: 0.15,
+        opacity: 0.35,
+        roughness: 0.05,
+        metalness: 0.1,
         side: THREE.DoubleSide,
         depthWrite: false
       });
 
-      const cylGeo = new THREE.CylinderGeometry(0.32, 0.30, 0.65, 36, 1, true);
-      const cyl = new THREE.Mesh(cylGeo, glassMat);
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.30, 0.65, 36, 1, true), glassMat);
       beakerGroup.add(cyl);
 
       const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.02, 36), glassMat);
@@ -549,52 +585,147 @@
 
       const rim = new THREE.Mesh(
         new THREE.TorusGeometry(0.318, 0.014, 12, 40),
-        new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2, metalness: 0.3 })
+        new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2, metalness: 0.4 })
       );
       rim.rotation.x = Math.PI / 2;
       rim.position.y = 0.325;
       beakerGroup.add(rim);
 
+      // درجه‌بندی میلی‌لیتر روی بشر
       const markMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85, depthWrite: false });
       [-0.18, -0.08, 0.02, 0.12, 0.22].forEach((yPos) => {
-        const mark = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.004, 6, 36), markMat);
+        const mark = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.003, 6, 36), markMat);
         mark.rotation.x = Math.PI / 2;
         mark.position.y = yPos;
         beakerGroup.add(mark);
       });
 
-      beakerWater = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.285, 0.285, 0.05, 32),
-        new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.85, roughness: 0.1, depthWrite: false })
+      // آب داخل بشر با رنگ فیروزه‌ای خوش‌رنگ و سطح دایره‌ای درخشان
+      beakerWaterGroup = new THREE.Group();
+      
+      const waterMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x0369a1,
+        emissiveIntensity: 0.2,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.1,
+        depthWrite: false
+      });
+
+      beakerWaterMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.288, 0.288, 0.42, 32),
+        waterMat
       );
-      beakerWater.position.y = -0.27;
-      beakerWater.visible = false;
-      beakerGroup.add(beakerWater);
+      beakerWaterGroup.add(beakerWaterMesh);
+
+      beakerWaterTop = new THREE.Mesh(
+        new THREE.CircleGeometry(0.288, 32),
+        new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.95,
+          roughness: 0.05,
+          side: THREE.DoubleSide
+        })
+      );
+      beakerWaterTop.rotation.x = -Math.PI / 2;
+      beakerWaterGroup.add(beakerWaterTop);
+
+      beakerWaterGroup.visible = false;
+      beakerGroup.add(beakerWaterGroup);
 
       labStage.add(beakerGroup);
     }
 
+    // ۲. لیوان شیشه‌ای شفاف حاوی آب اولیه
     function initCup() {
       cupGroup = new THREE.Group();
       cupGroup.position.copy(POS_CUP_DEF);
       cupGroup.userData = { type: 'cup', defaultPos: POS_CUP_DEF.clone() };
 
+      // بدنه شیشه‌ای شفاف لیوان
+      const cupGlassMat = new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        transparent: true,
+        opacity: 0.4,
+        roughness: 0.08,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      });
+
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.18, 0.2, 0.45, 28),
-        new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.3 })
+        new THREE.CylinderGeometry(0.18, 0.17, 0.42, 32, 1, true),
+        cupGlassMat
       );
-      body.castShadow = true;
       cupGroup.add(body);
 
-      cupWater = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.16, 0.18, 0.35, 28),
-        new THREE.MeshStandardMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 })
+      const btm = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.17, 0.17, 0.02, 32),
+        cupGlassMat
       );
-      cupWater.position.y = 0.02;
-      cupGroup.add(cupWater);
+      btm.position.y = -0.21;
+      cupGroup.add(btm);
+
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(0.18, 0.012, 12, 32),
+        new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.2, metalness: 0.3 })
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.21;
+      cupGroup.add(rim);
+
+      // آب فیروزه‌ای داخل لیوان (کاملاً از شیشه مشخص است)
+      cupWaterGroup = new THREE.Group();
+
+      const waterMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.25,
+        transparent: true,
+        opacity: 0.88,
+        roughness: 0.15,
+        depthWrite: false
+      });
+
+      cupWaterMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.165, 0.165, 0.34, 32),
+        waterMat
+      );
+      cupWaterGroup.add(cupWaterMesh);
+
+      cupWaterTop = new THREE.Mesh(
+        new THREE.CircleGeometry(0.165, 32),
+        new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.95,
+          roughness: 0.05,
+          side: THREE.DoubleSide
+        })
+      );
+      cupWaterTop.rotation.x = -Math.PI / 2;
+      cupWaterGroup.add(cupWaterTop);
+
+      cupGroup.add(cupWaterGroup);
 
       createHitbox(cupGroup, new THREE.Vector3(0.5, 0.6, 0.5));
       labStage.add(cupGroup);
+    }
+
+    // جریان باریک آب هنگام انتقال به بشر
+    function initWaterStream() {
+      const streamGeo = new THREE.CylinderGeometry(0.025, 0.035, 0.45, 16);
+      const streamMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.1
+      });
+      waterStreamMesh = new THREE.Mesh(streamGeo, streamMat);
+      waterStreamMesh.visible = false;
+      labStage.add(waterStreamMesh);
     }
 
     function initThermometer() {
@@ -848,7 +979,6 @@
       }
     }
 
-    // متصل کردن مفاصل قابل رویت به ساختار دست داخلی Three.js
     function attachHandVisuals(hand) {
       const jointMat = new THREE.MeshStandardMaterial({
         color: 0x38bdf8,
@@ -863,7 +993,6 @@
         const xrInputSource = event.data;
         if (xrInputSource.hand) {
           hand.visible = true;
-          // ایجاد مش برای تمام مفاصل در دسترس
           if (hand.children.length === 0) {
             for (let i = 0; i < 25; i++) {
               const jMesh = new THREE.Mesh(jointGeo, jointMat);
@@ -885,7 +1014,6 @@
       ]);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
 
-      // کنترلر و دست 0
       controller1 = renderer.xr.getController(0);
       controller1.addEventListener('selectstart', onXRSelectStart);
       controller1.addEventListener('selectend', onXRSelectEnd);
@@ -902,7 +1030,6 @@
       hand1.addEventListener('connected', () => { line1.visible = false; });
       scene.add(hand1);
 
-      // کنترلر و دست 1
       controller2 = renderer.xr.getController(1);
       controller2.addEventListener('selectstart', onXRSelectStart);
       controller2.addEventListener('selectend', onXRSelectEnd);
@@ -944,7 +1071,6 @@
         idx++;
       }
 
-      // محاسبه فاصله Pinch
       if (indexTip && thumbTip) {
         const dist = indexTip.distanceTo(thumbTip);
         const isPinch = dist < 0.04;
@@ -1061,6 +1187,7 @@
       if (!obj) return;
       if (obj.userData.type === 'cup') {
         obj.rotation.set(0, 0, 0);
+        waterStreamMesh.visible = false;
         if (simState.beakerFilled) {
           obj.position.copy(POS_CUP_DEF);
         }
@@ -1175,31 +1302,42 @@
       const dragPosWorld = new THREE.Vector3();
       activeDrag.getWorldPosition(dragPosWorld);
 
-      if (type === 'cup' && !simState.beakerFilled) {
+      // ۱. تعامل لیوان با بشر و انیمیشن ریختن آب
+      if (type === 'cup') {
         const beakerWorld = new THREE.Vector3();
         beakerGroup.getWorldPosition(beakerWorld);
-        beakerWorld.y += 0.4;
+        beakerWorld.y += 0.45;
 
         const d = dragPosWorld.distanceTo(beakerWorld);
-        if (d < 0.65) {
-          activeDrag.rotation.z = 1.15;
-          beakerWater.visible = true;
+        if (d < 0.65 && simState.pourProgress < 1.0) {
+          // زاویه گرفتن طبیعی لیوان
+          activeDrag.rotation.z = THREE.MathUtils.lerp(activeDrag.rotation.z, 1.35, 0.2);
 
-          let s = Math.min(5.0, beakerWater.scale.y + 0.1);
-          beakerWater.scale.y = s;
-          beakerWater.position.y = -0.27 + (s - 1) * 0.03;
-          cupWater.scale.y = Math.max(0.05, 1 - (s / 5.0));
+          // فعال شدن و تنظیم جهت باریکهٔ جریان آب
+          const cupRimPos = dragPosWorld.clone().add(new THREE.Vector3(-0.15, 0.1, 0));
+          const beakerTarget = beakerWorld.clone().add(new THREE.Vector3(0, -0.15, 0));
 
-          if (s >= 5.0) {
+          const midPoint = new THREE.Vector3().addVectors(cupRimPos, beakerTarget).multiplyScalar(0.5);
+          waterStreamMesh.position.copy(labStage.worldToLocal(midPoint));
+          waterStreamMesh.visible = true;
+          
+          // افزایش تدریجی آب بشر و خالی شدن لیوان
+          simState.pourProgress = Math.min(1.0, simState.pourProgress + 0.03);
+          updateWaterVolumes();
+
+          if (simState.pourProgress >= 1.0) {
             simState.beakerFilled = true;
+            waterStreamMesh.visible = false;
             updateStatus('beaker-state', 'پر از آب', '#38bdf8');
             updateTip('کبریت را روی سمباده بکشید تا مشتعل شود.');
           }
         } else {
-          activeDrag.rotation.z = 0;
+          activeDrag.rotation.z = THREE.MathUtils.lerp(activeDrag.rotation.z, 0, 0.2);
+          waterStreamMesh.visible = false;
         }
       }
 
+      // ۲. تعامل کبریت و چراغ
       if (type === 'match') {
         const boxWorld = new THREE.Vector3();
         matchbox.getWorldPosition(boxWorld);
@@ -1223,6 +1361,7 @@
         }
       }
 
+      // ۳. تعامل دماسنج
       if (type === 'thermometer') {
         const beakerCenter = new THREE.Vector3();
         beakerGroup.getWorldPosition(beakerCenter);
