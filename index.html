@@ -192,12 +192,13 @@
 
   <div class="help-box" id="html-help">
     <b>دسکتاپ:</b> درگ موس برای وسایل | کلیک راست چرخش<br/>
-    <b>در واقعیت مجازی:</b> پرتو را روی وسیله ببرید و کلید Trigger یا Grip را نگه دارید
+    <b>در Quest:</b> نزدیک‌کردن انگشت شست و اشاره (Pinch) جهت گرفتن مستقیم اشیا
   </div>
 
   <button class="reset-btn" id="desktop-reset-btn">بازنشانی محیط (Reset)</button>
   <button id="vr-btn">ورود به واقعیت مجازی (Meta Quest)</button>
 
+  <!-- بارگذاری پایدار و مستقل Three.js بدون نیاز به اسکریپت ماژولار خارجی -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
@@ -209,7 +210,7 @@
     let thermometerGroup, lcdCanvas, lcdCtx, lcdTexture;
     let matchGroup, matchFlame, matchLight, matchbox;
     let burnerGroup, burnerFlameInner, burnerFlameOuter, burnerLight;
-    let vrResetCapMesh; // مش سر دکمه برای انیمیشن فشرده شدن در VR
+    let vrResetCapMesh;
 
     let vrHudMesh, vrHudCanvas, vrHudCtx, vrHudTexture;
 
@@ -222,18 +223,20 @@
 
     const hitTargets = [];
 
-    // متغیرهای WebXR
+    // کنترلرها و مدل دست‌های سه‌بعدی
     let controller1, controller2;
+    let hand1, hand2;
+    let handMeshes = { left: null, right: null };
+    let controllerLines = [];
     let xrGrabbed = null;
     const xrRaycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
 
-    // موقعیت‌های پیش‌فرض محلی (Local به labStage)
+    // موقعیت‌های پیش‌فرض محلی
     const POS_CUP_DEF = new THREE.Vector3(0.55, 0.265, 0.15);
     const POS_THERMO_DEF = new THREE.Vector3(0.45, 0.12, 0.35);
     const POS_MATCH_DEF = new THREE.Vector3(-0.5, 0.055, 0.25);
 
-    // حداقل فاصله عمودی مرکز هر شیء تا سطح میز برای جلوگیری از نفوذ
     const OBJECT_TABLE_OFFSETS = {
       cup: 0.225,
       thermometer: 0.08,
@@ -273,9 +276,7 @@
       updateVRHUD();
     };
 
-    // بازنشانی کامل شبیه‌ساز (بدون ریلود صفحه)
     function resetEnvironment() {
-      // ۱. رهاسازی اشیای در حال درگ یا گراب شده
       if (xrGrabbed) {
         labStage.attach(xrGrabbed.object);
         xrGrabbed = null;
@@ -286,13 +287,11 @@
         activeDrag = null;
       }
 
-      // ۲. حذف تمام پارتیکل‌های فعال
       ['sparks', 'bubbles', 'steam'].forEach((key) => {
         particles[key].forEach((p) => scene.remove(p));
         particles[key] = [];
       });
 
-      // ۳. ریست متغیرهای شبیه‌سازی
       simState.beakerFilled = false;
       simState.burnerLit = false;
       simState.matchLit = false;
@@ -302,19 +301,16 @@
       simState.heatStartTime = null;
       simState.guideText = 'لیوان آب را بردارید و بالای بشر خالی کنید.';
 
-      // ۴. ریست وضعیت و ظاهر لیوان و آب
       if (cupGroup.parent !== labStage) labStage.attach(cupGroup);
       cupGroup.position.copy(POS_CUP_DEF);
       cupGroup.rotation.set(0, 0, 0);
       cupWater.scale.set(1, 1, 1);
       cupWater.position.set(0, 0.02, 0);
 
-      // ۵. ریست وضعیت بشر و آب آن
       beakerWater.visible = false;
       beakerWater.scale.set(1, 1, 1);
-      beakerWater.position.set(0, -0.3, 0);
+      beakerWater.position.set(0, -0.27, 0);
 
-      // ۶. ریست چوب کبریت و شعله
       if (matchGroup.parent !== labStage) labStage.attach(matchGroup);
       matchGroup.position.copy(POS_MATCH_DEF);
       matchGroup.rotation.set(0, 0, 0);
@@ -322,18 +318,15 @@
       matchFlame.scale.set(1, 1, 1);
       matchLight.intensity = 0;
 
-      // ۷. ریست چراغ بونزن
       burnerGroup.flame.visible = false;
       burnerFlameInner.scale.set(1, 1, 1);
       burnerFlameOuter.scale.set(1, 1, 1);
       burnerLight.intensity = 0;
 
-      // ۸. ریست دماسنج
       if (thermometerGroup.parent !== labStage) labStage.attach(thermometerGroup);
       thermometerGroup.position.copy(POS_THERMO_DEF);
       thermometerGroup.rotation.set(0, 0, Math.PI / 2);
 
-      // ۹. به‌روزرسانی UI دسکتاپ، LCD و هدست VR
       $('heat-progress').style.width = '0%';
       $('temp-state').innerText = '25.0 °C';
       updateStatus('beaker-state', 'خالی', '#facc15');
@@ -344,7 +337,6 @@
       updateVRHUD();
     }
 
-    // انیمیشن فشرده شدن دکمه ریست سه‌بعدی
     function triggerResetButtonVisual() {
       if (!vrResetCapMesh) return;
       vrResetCapMesh.position.y = 0.015;
@@ -353,7 +345,6 @@
       }, 180);
     }
 
-    // حل نفوذ شیء به سطح بالایی میز
     function clampAboveTable(object, isXR = false) {
       if (!object || !object.userData || !object.userData.type) return;
 
@@ -421,14 +412,12 @@
       initMatchbox();
       initBurner();
       initVRHUD();
-      initVRResetButton(); // ایجاد دکمه سه‌بعدی ریست
+      initVRResetButton();
 
-      setupXRControllers();
+      setupXRControllersAndHands();
       checkXRSupport();
 
-      $('desktop-reset-btn').addEventListener('click', () => {
-        resetEnvironment();
-      });
+      $('desktop-reset-btn').addEventListener('click', resetEnvironment);
 
       const dom = renderer.domElement;
       dom.addEventListener('pointerdown', onPointerDown);
@@ -441,8 +430,8 @@
     }
 
     function initLighting() {
-      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-      const light = new THREE.DirectionalLight(0xffffff, 1.2);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+      const light = new THREE.DirectionalLight(0xffffff, 1.3);
       light.position.set(2, 6, 2);
       light.castShadow = true;
       scene.add(light);
@@ -475,10 +464,9 @@
       });
     }
 
-    // دکمه بازنشانی سه‌بعدی داخل محیط VR
     function initVRResetButton() {
       const btnGroup = new THREE.Group();
-      btnGroup.position.set(0.88, 0.04, 0.45); // گوشه سمت راست میز
+      btnGroup.position.set(0.88, 0.04, 0.45);
 
       const base = new THREE.Mesh(
         new THREE.BoxGeometry(0.18, 0.03, 0.18),
@@ -494,7 +482,6 @@
       vrResetCapMesh.position.y = 0.03;
       btnGroup.add(vrResetCapMesh);
 
-      // برچسب نوشتاری روی میز
       const labelCanvas = document.createElement('canvas');
       labelCanvas.width = 128;
       labelCanvas.height = 64;
@@ -516,7 +503,6 @@
       labelMesh.position.set(0, 0.031, -0.11);
       btnGroup.add(labelMesh);
 
-      // هیت‌باکس کلیک
       const hitMesh = new THREE.Mesh(
         new THREE.BoxGeometry(0.2, 0.08, 0.2),
         new THREE.MeshBasicMaterial({ visible: false })
@@ -542,39 +528,54 @@
       hitTargets.push(box);
     }
 
+    // طراحی بشر با خطوط مدرج کامپکت و دیده شدن تضمینی
     function initBeaker() {
       beakerGroup = new THREE.Group();
-      beakerGroup.position.set(0, 0.55, 0);
+      beakerGroup.position.set(0, 0.58, 0);
 
+      // شیشه کریستالی با رنگ آبی آسمانی ملایم
       const glassMat = new THREE.MeshStandardMaterial({
-        color: 0xcfe8ff,
+        color: 0xbae6fd,
         transparent: true,
         opacity: 0.45,
         roughness: 0.1,
-        metalness: 0.1,
-        side: THREE.DoubleSide
+        metalness: 0.15,
+        side: THREE.DoubleSide,
+        depthWrite: false
       });
 
-      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.65, 32, 1, true), glassMat);
-      const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.02, 32), glassMat);
-      btm.position.y = -0.32;
+      const cylGeo = new THREE.CylinderGeometry(0.32, 0.30, 0.65, 36, 1, true);
+      const cyl = new THREE.Mesh(cylGeo, glassMat);
+      beakerGroup.add(cyl);
 
+      const btm = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.02, 36), glassMat);
+      btm.position.y = -0.32;
+      beakerGroup.add(btm);
+
+      // حاشیه و خطوط کناری برای تفکیک کامل لبه شیشه
       const rim = new THREE.Mesh(
-        new THREE.TorusGeometry(0.35, 0.015, 12, 32),
-        new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.2 })
+        new THREE.TorusGeometry(0.318, 0.014, 12, 40),
+        new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2, metalness: 0.3 })
       );
       rim.rotation.x = Math.PI / 2;
       rim.position.y = 0.325;
-
-      beakerGroup.add(cyl);
-      beakerGroup.add(btm);
       beakerGroup.add(rim);
 
+      // خطوط درجه‌بندی مدرج
+      const markMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85, depthWrite: false });
+      [-0.18, -0.08, 0.02, 0.12, 0.22].forEach((yPos) => {
+        const mark = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.004, 6, 36), markMat);
+        mark.rotation.x = Math.PI / 2;
+        mark.position.y = yPos;
+        beakerGroup.add(mark);
+      });
+
+      // آب داخل بشر
       beakerWater = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.33, 0.33, 0.05, 28),
-        new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.8, roughness: 0.1 })
+        new THREE.CylinderGeometry(0.285, 0.285, 0.05, 32),
+        new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.85, roughness: 0.1, depthWrite: false })
       );
-      beakerWater.position.y = -0.3;
+      beakerWater.position.y = -0.27;
       beakerWater.visible = false;
       beakerGroup.add(beakerWater);
 
@@ -855,30 +856,161 @@
       }
     }
 
-    function setupXRControllers() {
+    // ساخت دست‌های سه‌بعدی بدون نیاز به ماژول خارجی (مستقل و ضد کرش)
+    function createProceduralHand() {
+      const handGroup = new THREE.Group();
+      const jointMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        roughness: 0.3,
+        metalness: 0.5,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.2
+      });
+
+      // ساخت ۲۵ مفصل استاندارد WebXR Hand
+      for (let i = 0; i < 25; i++) {
+        const jointMesh = new THREE.Mesh(new THREE.SphereGeometry(0.009, 12, 12), jointMat);
+        jointMesh.visible = false;
+        handGroup.add(jointMesh);
+      }
+      return handGroup;
+    }
+
+    function setupXRControllersAndHands() {
       const lineGeo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(0, 0, 0),
         new THREE.Vector3(0, 0, -3.0)
       ]);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
 
-      // دست چپ
+      // ۱. کنترلر و دست چپ
       controller1 = renderer.xr.getController(0);
       controller1.addEventListener('selectstart', onXRSelectStart);
       controller1.addEventListener('selectend', onXRSelectEnd);
       controller1.addEventListener('squeezestart', onXRSelectStart);
       controller1.addEventListener('squeezeend', onXRSelectEnd);
-      controller1.add(new THREE.Line(lineGeo, lineMat));
+      const line1 = new THREE.Line(lineGeo, lineMat);
+      controller1.add(line1);
+      controllerLines.push(line1);
       scene.add(controller1);
 
-      // دست راست
+      hand1 = renderer.xr.getHand(0);
+      hand1.userData = { handedness: 'left', isPinching: false };
+      handMeshes.left = createProceduralHand();
+      hand1.add(handMeshes.left);
+      hand1.addEventListener('connected', () => {
+        line1.visible = false;
+      });
+      scene.add(hand1);
+
+      // ۲. کنترلر و دست راست
       controller2 = renderer.xr.getController(1);
       controller2.addEventListener('selectstart', onXRSelectStart);
       controller2.addEventListener('selectend', onXRSelectEnd);
       controller2.addEventListener('squeezestart', onXRSelectStart);
       controller2.addEventListener('squeezeend', onXRSelectEnd);
-      controller2.add(new THREE.Line(lineGeo, lineMat));
+      const line2 = new THREE.Line(lineGeo, lineMat);
+      controller2.add(line2);
+      controllerLines.push(line2);
       scene.add(controller2);
+
+      hand2 = renderer.xr.getHand(1);
+      hand2.userData = { handedness: 'right', isPinching: false };
+      handMeshes.right = createProceduralHand();
+      hand2.add(handMeshes.right);
+      hand2.addEventListener('connected', () => {
+        line2.visible = false;
+      });
+      scene.add(hand2);
+    }
+
+    // به‌روزرسانی اسکلت دست و محاسبه دقیق Pinch
+    function updateHandTracking(hand, handMeshGroup, frame, refSpace) {
+      if (!hand || !frame || !refSpace) return;
+
+      const inputSource = hand.inputSource || (hand.userData && hand.userData.inputSource);
+      const handObj = hand.hand || (inputSource && inputSource.hand);
+
+      let indexTipPos = null;
+      let thumbTipPos = null;
+
+      if (handObj) {
+        let i = 0;
+        for (const [jointName, jointSpace] of handObj.entries()) {
+          const pose = frame.getJointPose ? frame.getJointPose(jointSpace, refSpace) : null;
+          const jointMesh = handMeshGroup.children[i];
+
+          if (pose && jointMesh) {
+            jointMesh.visible = true;
+            jointMesh.position.copy(pose.transform.position);
+            jointMesh.quaternion.copy(pose.transform.orientation);
+
+            if (jointName === 'index-finger-tip') {
+              indexTipPos = new THREE.Vector3().copy(pose.transform.position);
+            }
+            if (jointName === 'thumb-tip') {
+              thumbTipPos = new THREE.Vector3().copy(pose.transform.position);
+            }
+          } else if (jointMesh) {
+            jointMesh.visible = false;
+          }
+          i++;
+        }
+      }
+
+      // بررسی Pinch بر اساس فاصله نوک انگشت شست و اشاره
+      if (indexTipPos && thumbTipPos) {
+        const pinchDist = indexTipPos.distanceTo(thumbTipPos);
+        const pinchCenter = indexTipPos.clone().lerp(thumbTipPos, 0.5);
+        const isPinch = pinchDist < 0.038;
+
+        if (isPinch && !hand.userData.isPinching) {
+          hand.userData.isPinching = true;
+
+          if (!xrGrabbed) {
+            const resetPos = new THREE.Vector3();
+            vrResetCapMesh.getWorldPosition(resetPos);
+            if (pinchCenter.distanceTo(resetPos) < 0.15) {
+              triggerResetButtonVisual();
+              resetEnvironment();
+              return;
+            }
+
+            let closestObj = null;
+            let minDistance = 0.22;
+
+            [cupGroup, thermometerGroup, matchGroup].forEach((obj) => {
+              const objPos = new THREE.Vector3();
+              obj.getWorldPosition(objPos);
+              const dist = pinchCenter.distanceTo(objPos);
+              if (dist < minDistance) {
+                minDistance = dist;
+                closestObj = obj;
+              }
+            });
+
+            if (closestObj) {
+              xrGrabbed = {
+                object: closestObj,
+                controller: hand,
+                isHand: true
+              };
+              activeDrag = closestObj;
+
+              if (closestObj.userData.type === 'thermometer') {
+                closestObj.rotation.set(0, 0, 0);
+              }
+
+              hand.attach(closestObj);
+            }
+          }
+        } else if (!isPinch && hand.userData.isPinching) {
+          hand.userData.isPinching = false;
+          if (xrGrabbed && xrGrabbed.controller === hand) {
+            releaseXRObject(hand);
+          }
+        }
+      }
     }
 
     function getXRIntersections(controller) {
@@ -912,7 +1044,6 @@
 
       const hitMesh = hits[0].object;
 
-      // بررسی کلیک روی دکمه بازنشانی سه‌بعدی در VR
       if (hitMesh.userData && hitMesh.userData.isResetButton) {
         triggerResetButtonVisual();
         resetEnvironment();
@@ -926,7 +1057,8 @@
 
       xrGrabbed = {
         object: root,
-        controller: controller
+        controller: controller,
+        isHand: false
       };
       activeDrag = root;
 
@@ -996,7 +1128,6 @@
       if (hits.length > 0) {
         const hitMesh = hits[0].object;
 
-        // بررسی کلیک روی دکمه سه‌بعدی ریست در نمای دسکتاپ
         if (hitMesh.userData && hitMesh.userData.isResetButton) {
           triggerResetButtonVisual();
           resetEnvironment();
@@ -1071,7 +1202,7 @@
 
           let s = Math.min(5.0, beakerWater.scale.y + 0.1);
           beakerWater.scale.y = s;
-          beakerWater.position.y = -0.3 + (s - 1) * 0.03;
+          beakerWater.position.y = -0.27 + (s - 1) * 0.03;
           cupWater.scale.y = Math.max(0.05, 1 - (s / 5.0));
 
           if (s >= 5.0) {
@@ -1084,7 +1215,7 @@
         }
       }
 
-      // ۲. روشن کردن کبریت و چراغ بونزن
+      // ۲. کبریت و چراغ بونزن
       if (type === 'match') {
         const boxWorld = new THREE.Vector3();
         matchbox.getWorldPosition(boxWorld);
@@ -1256,6 +1387,13 @@
     function renderLoop(timestamp, frame) {
       const now = performance.now();
       const t = now * 0.008;
+
+      // ردیابی دست‌ها و مفاصل در فریم VR
+      if (renderer.xr.isPresenting && frame) {
+        const refSpace = renderer.xr.getReferenceSpace();
+        updateHandTracking(hand1, handMeshes.left, frame, refSpace);
+        updateHandTracking(hand2, handMeshes.right, frame, refSpace);
+      }
 
       if (simState.burnerLit) {
         burnerFlameInner.scale.y = 1 + Math.sin(t * 3.5) * 0.12;
