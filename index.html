@@ -119,17 +119,23 @@
       bottom: 16px;
       right: 16px;
       z-index: 10;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
       border-radius: 8px;
-      padding: 8px 14px;
-      background: rgba(15, 23, 42, 0.85);
-      color: #f8fafc;
+      padding: 10px 16px;
+      background: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
       cursor: pointer;
       font-size: 12px;
       font-family: inherit;
+      font-weight: bold;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
     }
     .reset-btn:hover {
-      background: rgba(30, 41, 59, 0.95);
+      background: rgba(239, 68, 68, 0.35);
+      color: #ffffff;
+      border-color: #ef4444;
+      transform: translateY(-2px);
     }
     #vr-btn {
       position: absolute;
@@ -189,7 +195,7 @@
     <b>در واقعیت مجازی:</b> پرتو را روی وسیله ببرید و کلید Trigger یا Grip را نگه دارید
   </div>
 
-  <button class="reset-btn" onclick="location.reload()">تنظیم مجدد</button>
+  <button class="reset-btn" id="desktop-reset-btn">بازنشانی محیط (Reset)</button>
   <button id="vr-btn">ورود به واقعیت مجازی (Meta Quest)</button>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -203,6 +209,7 @@
     let thermometerGroup, lcdCanvas, lcdCtx, lcdTexture;
     let matchGroup, matchFlame, matchLight, matchbox;
     let burnerGroup, burnerFlameInner, burnerFlameOuter, burnerLight;
+    let vrResetCapMesh; // مش سر دکمه برای انیمیشن فشرده شدن در VR
 
     let vrHudMesh, vrHudCanvas, vrHudCtx, vrHudTexture;
 
@@ -228,9 +235,9 @@
 
     // حداقل فاصله عمودی مرکز هر شیء تا سطح میز برای جلوگیری از نفوذ
     const OBJECT_TABLE_OFFSETS = {
-      cup: 0.225,          // با ارتفاع استوانه 0.45
-      thermometer: 0.08,   // در حالت خوابیده روی میز
-      match: 0.02          // ضخامت چوب کبریت
+      cup: 0.225,
+      thermometer: 0.08,
+      match: 0.02
     };
 
     const simState = {
@@ -266,12 +273,92 @@
       updateVRHUD();
     };
 
+    // بازنشانی کامل شبیه‌ساز (بدون ریلود صفحه)
+    function resetEnvironment() {
+      // ۱. رهاسازی اشیای در حال درگ یا گراب شده
+      if (xrGrabbed) {
+        labStage.attach(xrGrabbed.object);
+        xrGrabbed = null;
+      }
+      if (activeDrag) {
+        controls.enabled = true;
+        $('canvas-container').classList.remove('grabbing');
+        activeDrag = null;
+      }
+
+      // ۲. حذف تمام پارتیکل‌های فعال
+      ['sparks', 'bubbles', 'steam'].forEach((key) => {
+        particles[key].forEach((p) => scene.remove(p));
+        particles[key] = [];
+      });
+
+      // ۳. ریست متغیرهای شبیه‌سازی
+      simState.beakerFilled = false;
+      simState.burnerLit = false;
+      simState.matchLit = false;
+      simState.thermoActive = false;
+      simState.waterTemp = 25.0;
+      simState.displayTemp = 25.0;
+      simState.heatStartTime = null;
+      simState.guideText = 'لیوان آب را بردارید و بالای بشر خالی کنید.';
+
+      // ۴. ریست وضعیت و ظاهر لیوان و آب
+      if (cupGroup.parent !== labStage) labStage.attach(cupGroup);
+      cupGroup.position.copy(POS_CUP_DEF);
+      cupGroup.rotation.set(0, 0, 0);
+      cupWater.scale.set(1, 1, 1);
+      cupWater.position.set(0, 0.02, 0);
+
+      // ۵. ریست وضعیت بشر و آب آن
+      beakerWater.visible = false;
+      beakerWater.scale.set(1, 1, 1);
+      beakerWater.position.set(0, -0.3, 0);
+
+      // ۶. ریست چوب کبریت و شعله
+      if (matchGroup.parent !== labStage) labStage.attach(matchGroup);
+      matchGroup.position.copy(POS_MATCH_DEF);
+      matchGroup.rotation.set(0, 0, 0);
+      matchFlame.visible = false;
+      matchFlame.scale.set(1, 1, 1);
+      matchLight.intensity = 0;
+
+      // ۷. ریست چراغ بونزن
+      burnerGroup.flame.visible = false;
+      burnerFlameInner.scale.set(1, 1, 1);
+      burnerFlameOuter.scale.set(1, 1, 1);
+      burnerLight.intensity = 0;
+
+      // ۸. ریست دماسنج
+      if (thermometerGroup.parent !== labStage) labStage.attach(thermometerGroup);
+      thermometerGroup.position.copy(POS_THERMO_DEF);
+      thermometerGroup.rotation.set(0, 0, Math.PI / 2);
+
+      // ۹. به‌روزرسانی UI دسکتاپ، LCD و هدست VR
+      $('heat-progress').style.width = '0%';
+      $('temp-state').innerText = '25.0 °C';
+      updateStatus('beaker-state', 'خالی', '#facc15');
+      updateStatus('burner-state', 'خاموش', '#facc15');
+      updateStatus('thermo-state', 'خارج از بشر', '#facc15');
+      updateTip(simState.guideText);
+      drawDisplay(25.0);
+      updateVRHUD();
+    }
+
+    // انیمیشن فشرده شدن دکمه ریست سه‌بعدی
+    function triggerResetButtonVisual() {
+      if (!vrResetCapMesh) return;
+      vrResetCapMesh.position.y = 0.015;
+      setTimeout(() => {
+        if (vrResetCapMesh) vrResetCapMesh.position.y = 0.03;
+      }, 180);
+    }
+
     // حل نفوذ شیء به سطح بالایی میز
     function clampAboveTable(object, isXR = false) {
       if (!object || !object.userData || !object.userData.type) return;
 
       const offset = OBJECT_TABLE_OFFSETS[object.userData.type] || 0.05;
-      const TABLE_TOP_Y = 0.04; // سطح روی میز در مختصات محلی labStage
+      const TABLE_TOP_Y = 0.04;
       const minLocalY = TABLE_TOP_Y + offset;
 
       if (!isXR) {
@@ -279,7 +366,6 @@
           object.position.y = minLocalY;
         }
       } else {
-        // محاسبه در مختصات جهانی برای XR وقتی شیء فرزند کنترلر است
         const worldPos = new THREE.Vector3();
         object.getWorldPosition(worldPos);
 
@@ -335,9 +421,14 @@
       initMatchbox();
       initBurner();
       initVRHUD();
+      initVRResetButton(); // ایجاد دکمه سه‌بعدی ریست
 
       setupXRControllers();
       checkXRSupport();
+
+      $('desktop-reset-btn').addEventListener('click', () => {
+        resetEnvironment();
+      });
 
       const dom = renderer.domElement;
       dom.addEventListener('pointerdown', onPointerDown);
@@ -382,6 +473,60 @@
         leg.position.set(x, -0.375, z);
         labStage.add(leg);
       });
+    }
+
+    // دکمه بازنشانی سه‌بعدی داخل محیط VR
+    function initVRResetButton() {
+      const btnGroup = new THREE.Group();
+      btnGroup.position.set(0.88, 0.04, 0.45); // گوشه سمت راست میز
+
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.03, 0.18),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
+      );
+      base.position.y = 0.015;
+      btnGroup.add(base);
+
+      vrResetCapMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.065, 0.065, 0.03, 24),
+        new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3, emissive: 0x7f1d1d })
+      );
+      vrResetCapMesh.position.y = 0.03;
+      btnGroup.add(vrResetCapMesh);
+
+      // برچسب نوشتاری روی میز
+      const labelCanvas = document.createElement('canvas');
+      labelCanvas.width = 128;
+      labelCanvas.height = 64;
+      const lCtx = labelCanvas.getContext('2d');
+      lCtx.fillStyle = '#0f172a';
+      lCtx.fillRect(0, 0, 128, 64);
+      lCtx.fillStyle = '#ef4444';
+      lCtx.font = 'bold 22px sans-serif';
+      lCtx.textAlign = 'center';
+      lCtx.textBaseline = 'middle';
+      lCtx.fillText('بازنشانی', 64, 32);
+
+      const labelTex = new THREE.CanvasTexture(labelCanvas);
+      const labelMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.14, 0.07),
+        new THREE.MeshBasicMaterial({ map: labelTex })
+      );
+      labelMesh.rotation.x = -Math.PI / 2;
+      labelMesh.position.set(0, 0.031, -0.11);
+      btnGroup.add(labelMesh);
+
+      // هیت‌باکس کلیک
+      const hitMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.08, 0.2),
+        new THREE.MeshBasicMaterial({ visible: false })
+      );
+      hitMesh.position.y = 0.04;
+      hitMesh.userData = { isResetButton: true };
+      btnGroup.add(hitMesh);
+      hitTargets.push(hitMesh);
+
+      labStage.add(btnGroup);
     }
 
     function createHitbox(group, size) {
@@ -765,6 +910,15 @@
       const hits = getXRIntersections(controller);
       if (!hits.length) return false;
 
+      const hitMesh = hits[0].object;
+
+      // بررسی کلیک روی دکمه بازنشانی سه‌بعدی در VR
+      if (hitMesh.userData && hitMesh.userData.isResetButton) {
+        triggerResetButtonVisual();
+        resetEnvironment();
+        return false;
+      }
+
       const root = getXRGrabRoot(hits[0]);
       if (!root || !root.userData || !['cup', 'match', 'thermometer'].includes(root.userData.type)) {
         return false;
@@ -840,6 +994,15 @@
 
       const hits = raycaster.intersectObjects(hitTargets, true);
       if (hits.length > 0) {
+        const hitMesh = hits[0].object;
+
+        // بررسی کلیک روی دکمه سه‌بعدی ریست در نمای دسکتاپ
+        if (hitMesh.userData && hitMesh.userData.isResetButton) {
+          triggerResetButtonVisual();
+          resetEnvironment();
+          return;
+        }
+
         const root = getXRGrabRoot(hits[0]);
         if (!root || !['cup', 'match', 'thermometer'].includes(root.userData.type)) return;
 
