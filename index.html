@@ -222,9 +222,16 @@
     const tempMatrix = new THREE.Matrix4();
 
     // موقعیت‌های پیش‌فرض محلی (Local به labStage)
-    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.25, 0.15);
-    const POS_THERMO_DEF = new THREE.Vector3(0.45, 0.25, 0.35);
-    const POS_MATCH_DEF = new THREE.Vector3(-0.5, 0.25, 0.25);
+    const POS_CUP_DEF = new THREE.Vector3(0.55, 0.265, 0.15);
+    const POS_THERMO_DEF = new THREE.Vector3(0.45, 0.12, 0.35);
+    const POS_MATCH_DEF = new THREE.Vector3(-0.5, 0.055, 0.25);
+
+    // حداقل فاصله عمودی مرکز هر شیء تا سطح میز برای جلوگیری از نفوذ
+    const OBJECT_TABLE_OFFSETS = {
+      cup: 0.225,          // با ارتفاع استوانه 0.45
+      thermometer: 0.08,   // در حالت خوابیده روی میز
+      match: 0.02          // ضخامت چوب کبریت
+    };
 
     const simState = {
       beakerFilled: false,
@@ -258,6 +265,35 @@
       }
       updateVRHUD();
     };
+
+    // حل نفوذ شیء به سطح بالایی میز
+    function clampAboveTable(object, isXR = false) {
+      if (!object || !object.userData || !object.userData.type) return;
+
+      const offset = OBJECT_TABLE_OFFSETS[object.userData.type] || 0.05;
+      const TABLE_TOP_Y = 0.04; // سطح روی میز در مختصات محلی labStage
+      const minLocalY = TABLE_TOP_Y + offset;
+
+      if (!isXR) {
+        if (object.position.y < minLocalY) {
+          object.position.y = minLocalY;
+        }
+      } else {
+        // محاسبه در مختصات جهانی برای XR وقتی شیء فرزند کنترلر است
+        const worldPos = new THREE.Vector3();
+        object.getWorldPosition(worldPos);
+
+        const localPos = labStage.worldToLocal(worldPos.clone());
+        if (localPos.y < minLocalY) {
+          localPos.y = minLocalY;
+          const clampedWorldPos = labStage.localToWorld(localPos);
+          if (object.parent) {
+            object.parent.worldToLocal(clampedWorldPos);
+            object.position.copy(clampedWorldPos);
+          }
+        }
+      }
+    }
 
     function init() {
       const container = $('canvas-container');
@@ -565,7 +601,6 @@
       labStage.add(burnerGroup);
     }
 
-    // اصلاح کامل تابلوی واقعیت مجازی: بردن به بالای سر میز و نادیده گرفتن تست عمق
     function initVRHUD() {
       vrHudCanvas = document.createElement('canvas');
       vrHudCanvas.width = 512;
@@ -582,8 +617,8 @@
       });
 
       vrHudMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.52), hudMat);
-      vrHudMesh.position.set(0, 1.45, -0.2); // کاملاً بالاتر از بشر و وسایل
-      vrHudMesh.rotation.x = 0.15; // زاویه ملایم رو به پایین به سمت چشم کاربر
+      vrHudMesh.position.set(0, 1.45, -0.2);
+      vrHudMesh.rotation.x = 0.15;
       vrHudMesh.renderOrder = 9999;
       labStage.add(vrHudMesh);
 
@@ -634,9 +669,6 @@
       lcdTexture.needsUpdate = true;
     }
 
-    // ==========================================
-    // راه‌اندازی استاندارد WebXR
-    // ==========================================
     function checkXRSupport() {
       if ('xr' in navigator) {
         navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
@@ -659,6 +691,7 @@
                     currentSession = null;
                     if (xrGrabbed) {
                       labStage.attach(xrGrabbed.object);
+                      clampAboveTable(xrGrabbed.object, false);
                       resetObjectTransform(xrGrabbed.object);
                       xrGrabbed = null;
                     }
@@ -748,22 +781,23 @@
       }
 
       controller.attach(root);
+      clampAboveTable(root, true);
       return true;
     }
 
-    // ریست کردن زاویه و برگشت تمیز وسیله
     function resetObjectTransform(obj) {
       if (!obj) return;
       if (obj.userData.type === 'cup') {
         obj.rotation.set(0, 0, 0);
         if (simState.beakerFilled) {
-          obj.position.copy(POS_CUP_DEF); // اگر آب خالی شده، منظم روی میز برگردد
+          obj.position.copy(POS_CUP_DEF);
         }
       } else if (obj.userData.type === 'match') {
         obj.rotation.set(0, 0, 0);
       } else if (obj.userData.type === 'thermometer' && !simState.thermoActive) {
         obj.rotation.set(0, 0, Math.PI / 2);
       }
+      clampAboveTable(obj, false);
     }
 
     function releaseXRObject(controller) {
@@ -771,6 +805,8 @@
 
       const object = xrGrabbed.object;
       labStage.attach(object);
+
+      clampAboveTable(object, false);
 
       activeDrag = object;
       processInteractions();
@@ -790,9 +826,6 @@
       releaseXRObject(e.target);
     }
 
-    // ==========================================
-    // تعاملات دسکتاپ
-    // ==========================================
     function setPointerCoords(e) {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -839,6 +872,7 @@
         if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
           const newWorldPos = planeHit.clone().add(dragOffset);
           activeDrag.position.copy(labStage.worldToLocal(newWorldPos));
+          clampAboveTable(activeDrag, false);
         }
         processInteractions();
       }
@@ -854,9 +888,6 @@
       activeDrag = null;
     }
 
-    // ==========================================
-    // بررسی واکنش‌های آزمایشگاهی
-    // ==========================================
     function processInteractions() {
       if (!activeDrag) return;
       const type = activeDrag.userData.type;
@@ -1074,6 +1105,7 @@
       }
 
       if (xrGrabbed) {
+        clampAboveTable(xrGrabbed.object, true);
         processInteractions();
       }
 
