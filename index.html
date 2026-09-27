@@ -188,11 +188,11 @@
     </div>
   </div>
 
-  <div id="guide-tip" class="guide">لیوان شیشه‌ای آب را بردارید و بالای بشر خالی کنید.</div>
+  <div id="guide-tip" class="guide">لیوان شیشه‌ای آب را با دست بردارید و بالای بشر خالی کنید.</div>
 
   <div class="help-box" id="html-help">
     <b>دسکتاپ:</b> درگ موس برای وسایل | کلیک راست چرخش دوربین<br/>
-    <b>در Quest:</b> نزدیک‌کردن انگشت شست و اشاره (Pinch) جهت گرفتن مستقیم اشیا
+    <b>در Quest:</b> انگشت شست و اشاره را نزدیک شیء به‌هم بچسبانید (Pinch) تا برداشته شود
   </div>
 
   <button class="reset-btn" id="desktop-reset-btn">بازنشانی محیط (Reset)</button>
@@ -208,9 +208,9 @@
     // ظروف و آب
     let cupGroup, cupWaterGroup, cupWaterMesh, cupWaterTop;
     let beakerGroup, beakerWaterGroup, beakerWaterMesh, beakerWaterTop;
-    let waterStreamMesh; // جریان باریک آب هنگام ریختن
+    let waterStreamMesh;
 
-    // سایر تجهیزات
+    // تجهیزات
     let thermometerGroup, lcdCanvas, lcdCtx, lcdTexture;
     let matchGroup, matchFlame, matchLight, matchbox;
     let burnerGroup, burnerFlameInner, burnerFlameOuter, burnerLight;
@@ -227,7 +227,7 @@
 
     const hitTargets = [];
 
-    // کنترلرهای VR
+    // کنترلرها و دست‌های WebXR
     let controller1, controller2;
     let hand1, hand2;
     let controllerLines = [];
@@ -246,7 +246,7 @@
     };
 
     const simState = {
-      pourProgress: 0.0, // 0 = لیوان پر، بشر خالی | 1 = لیوان کاملاً خالی، بشر پر
+      pourProgress: 0.0,
       beakerFilled: false,
       burnerLit: false,
       matchLit: false,
@@ -255,7 +255,7 @@
       displayTemp: 25.0,
       heatStartTime: null,
       heatDuration: 120.0,
-      guideText: 'لیوان شیشه‌ای آب را بردارید و بالای بشر خالی کنید.'
+      guideText: 'لیوان شیشه‌ای آب را با دست بردارید و بالای بشر خالی کنید.'
     };
 
     const particles = {
@@ -279,22 +279,18 @@
       updateVRHUD();
     };
 
-    // به‌روزرسانی ابعاد و ارتفاع ستون‌های آب هر دو ظرف
     function updateWaterVolumes() {
-      const p = simState.pourProgress; // 0 تا 1
+      const p = simState.pourProgress;
 
-      // ۱. آب لیوان (مبدأ)
       const cupRatio = Math.max(0.0001, 1.0 - p);
       const cupHeight = 0.34;
       const cupBaseY = -0.17;
 
       cupWaterMesh.scale.set(1, cupRatio, 1);
-      // انتقال مرکز استوانه متناسب با ارتفاع باقی‌مانده
       cupWaterMesh.position.y = cupBaseY + (cupHeight * cupRatio) / 2;
       cupWaterTop.position.y = cupBaseY + (cupHeight * cupRatio);
       cupWaterGroup.visible = p < 0.99;
 
-      // ۲. آب بشر (مقصد)
       const beakerHeight = 0.42;
       const beakerBaseY = -0.30;
 
@@ -332,7 +328,7 @@
       simState.waterTemp = 25.0;
       simState.displayTemp = 25.0;
       simState.heatStartTime = null;
-      simState.guideText = 'لیوان شیشه‌ای آب را بردارید و بالای بشر خالی کنید.';
+      simState.guideText = 'لیوان شیشه‌ای آب را با دست بردارید و بالای بشر خالی کنید.';
 
       if (cupGroup.parent !== labStage) labStage.attach(cupGroup);
       cupGroup.position.copy(POS_CUP_DEF);
@@ -560,12 +556,10 @@
       hitTargets.push(box);
     }
 
-    // ۱. بشر شیشه‌ای آزمایشگاهی
     function initBeaker() {
       beakerGroup = new THREE.Group();
       beakerGroup.position.set(0, 0.58, 0);
 
-      // متریال شیشهٔ بسیار شفاف و باکیفیت
       const glassMat = new THREE.MeshStandardMaterial({
         color: 0xe0f2fe,
         transparent: true,
@@ -591,7 +585,6 @@
       rim.position.y = 0.325;
       beakerGroup.add(rim);
 
-      // درجه‌بندی میلی‌لیتر روی بشر
       const markMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85, depthWrite: false });
       [-0.18, -0.08, 0.02, 0.12, 0.22].forEach((yPos) => {
         const mark = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.003, 6, 36), markMat);
@@ -600,7 +593,6 @@
         beakerGroup.add(mark);
       });
 
-      // آب داخل بشر با رنگ فیروزه‌ای خوش‌رنگ و سطح دایره‌ای درخشان
       beakerWaterGroup = new THREE.Group();
       
       const waterMat = new THREE.MeshStandardMaterial({
@@ -638,13 +630,11 @@
       labStage.add(beakerGroup);
     }
 
-    // ۲. لیوان شیشه‌ای شفاف حاوی آب اولیه
     function initCup() {
       cupGroup = new THREE.Group();
       cupGroup.position.copy(POS_CUP_DEF);
       cupGroup.userData = { type: 'cup', defaultPos: POS_CUP_DEF.clone() };
 
-      // بدنه شیشه‌ای شفاف لیوان
       const cupGlassMat = new THREE.MeshStandardMaterial({
         color: 0xe0f2fe,
         transparent: true,
@@ -676,7 +666,6 @@
       rim.position.y = 0.21;
       cupGroup.add(rim);
 
-      // آب فیروزه‌ای داخل لیوان (کاملاً از شیشه مشخص است)
       cupWaterGroup = new THREE.Group();
 
       const waterMat = new THREE.MeshStandardMaterial({
@@ -714,7 +703,6 @@
       labStage.add(cupGroup);
     }
 
-    // جریان باریک آب هنگام انتقال به بشر
     function initWaterStream() {
       const streamGeo = new THREE.CylinderGeometry(0.025, 0.035, 0.45, 16);
       const streamMat = new THREE.MeshStandardMaterial({
@@ -979,32 +967,75 @@
       }
     }
 
-    function attachHandVisuals(hand) {
+    const XR_HAND_JOINTS = [
+      'wrist',
+      'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+      'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip',
+      'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip',
+      'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip',
+      'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'
+    ];
+
+    function buildHandModel(handGroup) {
+      const visualGroup = new THREE.Group();
+      visualGroup.name = 'handVisualRoot';
+
       const jointMat = new THREE.MeshStandardMaterial({
         color: 0x38bdf8,
-        roughness: 0.2,
+        roughness: 0.3,
         metalness: 0.6,
         emissive: 0x0284c7,
-        emissiveIntensity: 0.3
+        emissiveIntensity: 0.35
       });
-      const jointGeo = new THREE.SphereGeometry(0.008, 12, 12);
+      const jointGeo = new THREE.SphereGeometry(0.009, 14, 14);
 
-      hand.addEventListener('connected', (event) => {
-        const xrInputSource = event.data;
-        if (xrInputSource.hand) {
-          hand.visible = true;
-          if (hand.children.length === 0) {
-            for (let i = 0; i < 25; i++) {
-              const jMesh = new THREE.Mesh(jointGeo, jointMat);
-              hand.add(jMesh);
-            }
-          }
-        }
+      const boneMat = new THREE.MeshStandardMaterial({
+        color: 0x93c5fd,
+        roughness: 0.4,
+        metalness: 0.4,
+        transparent: true,
+        opacity: 0.85
+      });
+      const boneGeo = new THREE.CylinderGeometry(0.005, 0.005, 1, 10);
+      boneGeo.translate(0, 0.5, 0);
+      boneGeo.rotateX(Math.PI / 2);
+
+      const jointMeshes = {};
+      XR_HAND_JOINTS.forEach((jName) => {
+        const mesh = new THREE.Mesh(jointGeo, jointMat);
+        mesh.visible = false;
+        visualGroup.add(mesh);
+        jointMeshes[jName] = mesh;
       });
 
-      hand.addEventListener('disconnected', () => {
-        hand.visible = false;
+      const bonePairs = [
+        ['wrist', 'thumb-metacarpal'], ['thumb-metacarpal', 'thumb-phalanx-proximal'], ['thumb-phalanx-proximal', 'thumb-phalanx-distal'], ['thumb-phalanx-distal', 'thumb-tip'],
+        ['wrist', 'index-finger-metacarpal'], ['index-finger-metacarpal', 'index-finger-phalanx-proximal'], ['index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate'], ['index-finger-phalanx-intermediate', 'index-finger-phalanx-distal'], ['index-finger-phalanx-distal', 'index-finger-tip'],
+        ['wrist', 'middle-finger-metacarpal'], ['middle-finger-metacarpal', 'middle-finger-phalanx-proximal'], ['middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate'], ['middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal'], ['middle-finger-phalanx-distal', 'middle-finger-tip'],
+        ['wrist', 'ring-finger-metacarpal'], ['ring-finger-metacarpal', 'ring-finger-phalanx-proximal'], ['ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate'], ['ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal'], ['ring-finger-phalanx-distal', 'ring-finger-tip'],
+        ['wrist', 'pinky-finger-metacarpal'], ['pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal'], ['pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate'], ['pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal'], ['pinky-finger-phalanx-distal', 'pinky-finger-tip']
+      ];
+
+      const boneMeshes = [];
+      bonePairs.forEach(([j1, j2]) => {
+        const bMesh = new THREE.Mesh(boneGeo, boneMat);
+        bMesh.visible = false;
+        visualGroup.add(bMesh);
+        boneMeshes.push({ mesh: bMesh, start: j1, end: j2 });
       });
+
+      // انکر پوینت مخصوص گرفتن با Pinch
+      const gripAnchor = new THREE.Group();
+      gripAnchor.name = 'gripAnchor';
+      handGroup.add(gripAnchor);
+
+      handGroup.userData.handRig = {
+        jointMeshes,
+        boneMeshes,
+        gripAnchor
+      };
+
+      handGroup.add(visualGroup);
     }
 
     function setupXRControllersAndHands() {
@@ -1014,6 +1045,7 @@
       ]);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
 
+      // Controller 1
       controller1 = renderer.xr.getController(0);
       controller1.addEventListener('selectstart', onXRSelectStart);
       controller1.addEventListener('selectend', onXRSelectEnd);
@@ -1024,12 +1056,16 @@
       controllerLines.push(line1);
       scene.add(controller1);
 
+      // Hand 1
       hand1 = renderer.xr.getHand(0);
       hand1.userData = { isPinching: false };
-      attachHandVisuals(hand1);
+      buildHandModel(hand1);
       hand1.addEventListener('connected', () => { line1.visible = false; });
+      hand1.addEventListener('pinchstart', (e) => tryHandPinchGrab(hand1));
+      hand1.addEventListener('pinchend', (e) => tryHandPinchRelease(hand1));
       scene.add(hand1);
 
+      // Controller 2
       controller2 = renderer.xr.getController(1);
       controller2.addEventListener('selectstart', onXRSelectStart);
       controller2.addEventListener('selectend', onXRSelectEnd);
@@ -1040,87 +1076,148 @@
       controllerLines.push(line2);
       scene.add(controller2);
 
+      // Hand 2
       hand2 = renderer.xr.getHand(1);
       hand2.userData = { isPinching: false };
-      attachHandVisuals(hand2);
+      buildHandModel(hand2);
       hand2.addEventListener('connected', () => { line2.visible = false; });
+      hand2.addEventListener('pinchstart', (e) => tryHandPinchGrab(hand2));
+      hand2.addEventListener('pinchend', (e) => tryHandPinchRelease(hand2));
       scene.add(hand2);
     }
 
-    function updateHandDirect(hand) {
-      if (!hand || !hand.joints) return;
+    // برداشتن مستقیم شیء با نوک انگشتان
+    function tryHandPinchGrab(hand) {
+      if (xrGrabbed) return;
 
-      const joints = hand.joints;
-      let indexTip = null;
-      let thumbTip = null;
+      const rig = hand.userData.handRig;
+      const anchorWorld = new THREE.Vector3();
+      rig.gripAnchor.getWorldPosition(anchorWorld);
 
-      let idx = 0;
-      for (const jointName in joints) {
-        const joint = joints[jointName];
-        if (joint && hand.children[idx]) {
-          hand.children[idx].position.copy(joint.position);
-          hand.children[idx].quaternion.copy(joint.quaternion);
-          hand.children[idx].visible = joint.visible !== false;
-
-          if (jointName === 'index-finger-tip') {
-            indexTip = joint.position;
-          } else if (jointName === 'thumb-tip') {
-            thumbTip = joint.position;
-          }
-        }
-        idx++;
+      // بررسی کلیک روی دکمه ریست
+      const resetPos = new THREE.Vector3();
+      vrResetCapMesh.getWorldPosition(resetPos);
+      if (anchorWorld.distanceTo(resetPos) < 0.2) {
+        triggerResetButtonVisual();
+        resetEnvironment();
+        return;
       }
 
-      if (indexTip && thumbTip) {
-        const dist = indexTip.distanceTo(thumbTip);
-        const isPinch = dist < 0.04;
-        const pinchWorld = new THREE.Vector3().copy(indexTip).lerp(thumbTip, 0.5);
-        hand.localToWorld(pinchWorld);
+      let closestObj = null;
+      let minDistance = 0.35; // شعاع راحت برای برداشتن
+
+      [cupGroup, thermometerGroup, matchGroup].forEach((obj) => {
+        const objPos = new THREE.Vector3();
+        obj.getWorldPosition(objPos);
+        const d = anchorWorld.distanceTo(objPos);
+        if (d < minDistance) {
+          minDistance = d;
+          closestObj = obj;
+        }
+      });
+
+      if (closestObj) {
+        xrGrabbed = {
+          object: closestObj,
+          controller: hand,
+          anchor: rig.gripAnchor,
+          isHand: true
+        };
+        activeDrag = closestObj;
+
+        if (closestObj.userData.type === 'thermometer') {
+          closestObj.rotation.set(0, 0, 0);
+        }
+
+        // قفل کردن به انکرِ وسط شست و اشاره
+        rig.gripAnchor.attach(closestObj);
+      }
+    }
+
+    function tryHandPinchRelease(hand) {
+      if (xrGrabbed && xrGrabbed.controller === hand) {
+        const object = xrGrabbed.object;
+        labStage.attach(object);
+
+        clampAboveTable(object, false);
+
+        activeDrag = object;
+        processInteractions();
+        resetObjectTransform(object);
+
+        activeDrag = null;
+        xrGrabbed = null;
+      }
+    }
+
+    function updateHandDirect(hand) {
+      if (!hand || !hand.userData.handRig) return;
+
+      const joints = hand.joints;
+      const rig = hand.userData.handRig;
+      if (!joints || Object.keys(joints).length === 0) return;
+
+      let indexTipPos = null;
+      let thumbTipPos = null;
+
+      for (let i = 0; i < XR_HAND_JOINTS.length; i++) {
+        const jName = XR_HAND_JOINTS[i];
+        const jObj = joints[jName];
+        const mesh = rig.jointMeshes[jName];
+
+        if (jObj && mesh) {
+          if (jObj.jointRadius !== undefined) {
+            const rad = Math.max(0.005, jObj.jointRadius);
+            mesh.scale.setScalar(rad / 0.009);
+          }
+          mesh.position.copy(jObj.position);
+          mesh.quaternion.copy(jObj.quaternion);
+          mesh.visible = true;
+
+          if (jName === 'index-finger-tip') {
+            indexTipPos = jObj.position.clone();
+          } else if (jName === 'thumb-tip') {
+            thumbTipPos = jObj.position.clone();
+          }
+        } else if (mesh) {
+          mesh.visible = false;
+        }
+      }
+
+      // به‌روزرسانی استخوان‌ها
+      for (let i = 0; i < rig.boneMeshes.length; i++) {
+        const b = rig.boneMeshes[i];
+        const j1 = joints[b.start];
+        const j2 = joints[b.end];
+
+        if (j1 && j2) {
+          const p1 = j1.position;
+          const p2 = j2.position;
+          const dist = p1.distanceTo(p2);
+
+          b.mesh.position.copy(p1);
+          b.mesh.lookAt(p2);
+          b.mesh.scale.set(1, 1, dist);
+          b.mesh.visible = true;
+        } else {
+          b.mesh.visible = false;
+        }
+      }
+
+      // به‌روزرسانی Grip Anchor دقیقاً بین نوک دو انگشت
+      if (indexTipPos && thumbTipPos) {
+        const pinchMid = indexTipPos.clone().lerp(thumbTipPos, 0.5);
+        rig.gripAnchor.position.copy(pinchMid);
+
+        const dist = indexTipPos.distanceTo(thumbTipPos);
+        const isPinch = dist < 0.045;
 
         if (isPinch && !hand.userData.isPinching) {
           hand.userData.isPinching = true;
-
-          if (!xrGrabbed) {
-            const resetPos = new THREE.Vector3();
-            vrResetCapMesh.getWorldPosition(resetPos);
-            if (pinchWorld.distanceTo(resetPos) < 0.15) {
-              triggerResetButtonVisual();
-              resetEnvironment();
-              return;
-            }
-
-            let closestObj = null;
-            let minDistance = 0.22;
-
-            [cupGroup, thermometerGroup, matchGroup].forEach((obj) => {
-              const objPos = new THREE.Vector3();
-              obj.getWorldPosition(objPos);
-              const d = pinchWorld.distanceTo(objPos);
-              if (d < minDistance) {
-                minDistance = d;
-                closestObj = obj;
-              }
-            });
-
-            if (closestObj) {
-              xrGrabbed = {
-                object: closestObj,
-                controller: hand,
-                isHand: true
-              };
-              activeDrag = closestObj;
-
-              if (closestObj.userData.type === 'thermometer') {
-                closestObj.rotation.set(0, 0, 0);
-              }
-              hand.attach(closestObj);
-            }
-          }
+          tryHandPinchGrab(hand);
         } else if (!isPinch && hand.userData.isPinching) {
           hand.userData.isPinching = false;
-          if (xrGrabbed && xrGrabbed.controller === hand) {
-            releaseXRObject(hand);
-          }
+          tryHandPinchRelease(hand);
         }
       }
     }
@@ -1302,7 +1399,7 @@
       const dragPosWorld = new THREE.Vector3();
       activeDrag.getWorldPosition(dragPosWorld);
 
-      // ۱. تعامل لیوان با بشر و انیمیشن ریختن آب
+      // ۱. تعامل لیوان با بشر
       if (type === 'cup') {
         const beakerWorld = new THREE.Vector3();
         beakerGroup.getWorldPosition(beakerWorld);
@@ -1310,10 +1407,8 @@
 
         const d = dragPosWorld.distanceTo(beakerWorld);
         if (d < 0.65 && simState.pourProgress < 1.0) {
-          // زاویه گرفتن طبیعی لیوان
           activeDrag.rotation.z = THREE.MathUtils.lerp(activeDrag.rotation.z, 1.35, 0.2);
 
-          // فعال شدن و تنظیم جهت باریکهٔ جریان آب
           const cupRimPos = dragPosWorld.clone().add(new THREE.Vector3(-0.15, 0.1, 0));
           const beakerTarget = beakerWorld.clone().add(new THREE.Vector3(0, -0.15, 0));
 
@@ -1321,7 +1416,6 @@
           waterStreamMesh.position.copy(labStage.worldToLocal(midPoint));
           waterStreamMesh.visible = true;
           
-          // افزایش تدریجی آب بشر و خالی شدن لیوان
           simState.pourProgress = Math.min(1.0, simState.pourProgress + 0.03);
           updateWaterVolumes();
 
@@ -1329,7 +1423,7 @@
             simState.beakerFilled = true;
             waterStreamMesh.visible = false;
             updateStatus('beaker-state', 'پر از آب', '#38bdf8');
-            updateTip('کبریت را روی سمباده بکشید تا مشتعل شود.');
+            updateTip('کبریت را بردارید و روی سمباده بکشید تا مشتعل شود.');
           }
         } else {
           activeDrag.rotation.z = THREE.MathUtils.lerp(activeDrag.rotation.z, 0, 0.2);
